@@ -4,7 +4,7 @@
 
 This document describes the selected design for the Unified Service Scheduler. It covers the architecture, component responsibilities, data flow, technology choices, observability strategy, and GenAI use during design.
 
-The design choices below are recorded in [My decision](plan.md#my-decision). Domain assumptions and the [API contract](../api/README.md) are confirmed. The local application environment and database connectivity are implemented and verified. Appointment schema, booking, retrieval, and domain tests remain planned.
+The design choices below are recorded in [My decision](plan.md#my-decision). Domain assumptions and the [API contract](../api/README.md) are confirmed. The local environment, database connectivity, schema, and demonstration data are implemented and verified. Booking, retrieval, and domain tests remain planned.
 
 ## Requirements
 
@@ -27,10 +27,10 @@ flowchart LR
         HTTP --> Logs["Structured lifecycle logs"]
     end
     Store --> DB[(PostgreSQL)]
-    Migrations["golang-migrate + SQL files: planned"] -.-> DB
+    Migrations["golang-migrate + SQL files"] --> DB
 ```
 
-Solid paths are implemented and verified. Dotted paths show the next planned application behavior.
+Solid paths are implemented and verified. Dotted application paths show the next planned behavior.
 
 ## Components
 
@@ -42,7 +42,7 @@ Solid paths are implemented and verified. Dotted paths show the next planned app
 | Catalog model | `internal/catalog/` | Planned: represent customers, vehicles, dealerships, service types, technicians, qualifications, and bays. |
 | PostgreSQL access | `internal/postgres/` | Connection pool and startup ping implemented; transaction handling and appointment queries are planned. |
 | Configuration | `internal/config/` | Implemented: load and validate connection, timeout, pool, and server settings. |
-| Schema and seed data | `database/` | Planned: apply versioned migrations and load reproducible demonstration data. |
+| Schema and seed data | `database/` | Implemented: apply a reversible schema migration, load deterministic demonstration data, and verify constraints and indexes. |
 
 These are packages within one application, not independent services. Booking code will express the business workflow without depending on HTTP response details.
 
@@ -87,7 +87,9 @@ All statements in this operation must use the same transaction, not independent 
 | ServiceBay | Bay assigned to one dealership. |
 | Appointment | Customer, vehicle, dealership, service type, technician, bay, interval, and confirmed status. |
 
-Catalog data is seeded and static. IDs are positive integers; appointment IDs are assigned by the server. Each vehicle is associated with a customer, and booking validates that association. The schema must preserve required relationships and valid intervals. Exact database column types and indexes remain implementation details.
+Catalog data is seeded and static. IDs use positive `bigint` identity columns, and appointment timestamps use `timestamptz`. Composite foreign keys enforce the customer/vehicle association, technician and bay dealership membership, and technician qualification for the selected service. Checks require positive service duration, a positive appointment interval, and `CONFIRMED` status.
+
+B-tree indexes support catalog lookup and interval queries by dealership plus technician or bay. Overlap prevention is intentionally owned by the booking transaction rather than an exclusion constraint, because every supported writer will acquire the dealership row lock before checking both resources.
 
 ## Concurrency decision
 
@@ -149,4 +151,4 @@ The concurrency test must use multiple database connections and verify committed
 
 AI assisted with requirements analysis, scope comparison, identifying booking invariants, and drafting component boundaries. I selected the technologies and transaction strategy and limited the scope to a complete submission within the available time.
 
-Review clarified that both resources must be allocated atomically and that availability checks must follow the dealership lock. The design records its contention and response-loss limitations. Environment behavior is verified; booking correctness remains to be established through the planned tests.
+Review clarified that both resources must be allocated atomically and that availability checks must follow the dealership lock. The design records its contention and response-loss limitations. Environment and schema behavior are verified; booking correctness remains to be established through the planned tests.

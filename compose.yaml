@@ -39,5 +39,19 @@ services:
     init: true
     stop_grace_period: 15s
 
+  migrate:
+    image: migrate/migrate:v4.19.1
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./database/migrations:/migrations:ro
+    entrypoint:
+      - migrate
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-scheduler}:${POSTGRES_PASSWORD:-scheduler}@db:5432/${POSTGRES_DB:-scheduler}?sslmode=disable
+    command: ["up"]
+
 volumes:
   postgres_data:

@@ -10,14 +10,15 @@ Deliver the Unified Service Scheduler for Scenario A: a Go and PostgreSQL backen
 
 | Area | Status | Evidence or remaining work |
 | --- | --- | --- |
-| Project structure | In progress | Environment packages exist; booking, schema, and test directories will be created with their first files. |
+| Project structure | In progress | Environment and database files exist; booking and test packages will be created with their first files. |
 | Technology and concurrency choices | Selected | Recorded in [My decision](#my-decision). |
-| System design | Design recorded | [Architecture](architecture.md) covers confirmed decisions and pinned environment versions. |
+| System design | Design recorded | [Architecture](architecture.md) covers confirmed decisions, schema boundaries, and pinned versions. |
 | Domain assumptions | Confirmed | Time, working hours, and customer/vehicle validation are documented in [Architecture](architecture.md#assumptions). |
 | Scope freeze | Complete | Technology choices, domain assumptions, and the [API contract](../api/README.md) are confirmed. |
 | Application environment | Complete | The Go service, PostgreSQL connection pool, health route, Compose services, persistent volume, and Make targets run successfully. |
-| Domain and schema | Not implemented | Migrations, seed data, booking workflow, and appointment endpoints begin in Step 3. |
-| Verification | Environment verified | Build, test command, vet, Compose startup, health, volume retention, and graceful shutdown pass; domain tests remain. |
+| Schema and seed data | Complete | Versioned migrations, relational constraints, lookup indexes, deterministic catalog data, and schema verification are implemented. |
+| Booking and API | Not implemented | The transaction workflow and appointment endpoints begin in Step 4. |
+| Verification | Environment and schema verified | Fresh initialization, repeat initialization, rollback/reapply, constraints, indexes, health, build, and vet pass; domain tests remain. |
 | Video and submission | Not completed | Recording and final repository checks follow implementation. |
 
 Completed checkboxes record finished work. Unchecked items remain planned and do not imply implementation or successful verification.
@@ -46,7 +47,11 @@ I selected a single Go backend with PostgreSQL and a cURL client. The implementa
 
 The concurrency tradeoff is reduced throughput within a dealership. All booking writers must follow the same locking protocol. The full data flow and limitations are documented in [architecture.md](architecture.md).
 
-The domain assumptions and [API contract](../api/README.md) are confirmed, completing Step 1. Step 2 pins the runtime and dependency versions and establishes the runnable local environment. Booking and persistence choices still describe intended behavior until their implementation is verified.
+The domain assumptions and [API contract](../api/README.md) are confirmed, completing Step 1. Step 2 pins the runtime and dependency versions and establishes the runnable local environment.
+
+### Step 3: Schema boundaries
+
+The schema uses composite foreign keys to enforce customer/vehicle ownership, dealership membership for technicians and bays, and technician/service qualification. Positive duration and appointment interval checks protect stored values. Resource overlap remains a booking-transaction responsibility so Step 4 can apply the selected dealership lock consistently.
 
 ## Scope boundaries
 
@@ -75,12 +80,12 @@ Catalog administration, authentication, cancellation, rescheduling, temporary ho
 
 ### 3. Create schema and seed data - 90 minutes
 
-- [ ] Add an initial SQL migration for entities and associations.
-- [ ] Add foreign keys, positive duration/interval checks, and relevant lookup indexes.
-- [ ] Seed two dealerships, qualified/unqualified technicians, bays, customers, vehicles, and services.
-- [ ] Verify initialization on a fresh database.
+- [x] Add an initial reversible SQL migration for entities and associations.
+- [x] Add foreign keys, positive duration and interval checks, and resource lookup indexes.
+- [x] Seed two dealerships, qualified and unqualified technicians, alternative bays, customers, vehicles, services, and one occupied resource pair.
+- [x] Verify initialization on a fresh database, repeat initialization, and migration rollback and reapplication.
 
-**Completion evidence:** Repeatable data setup supports successful booking, invalid resource selection, and alternative available resources.
+**Completion evidence:** `make db-verify` applies the migration, loads deterministic data, and verifies relationships, alternatives, constraints, and indexes. The same command passes on a fresh database and when repeated.
 
 ### 4. Implement safe booking - 2 hours
 

@@ -4,7 +4,7 @@ A Go backend for booking vehicle service appointments at a dealership. A booking
 
 This project is the backend submission for Scenario A of the Keyloop Technical Assessment.
 
-**Status:** Local application environment complete. The Go service connects to PostgreSQL, exposes `GET /healthz`, and shuts down gracefully. Appointment schema, booking endpoints, and business tests are planned next.
+**Status:** Environment, schema, and demonstration data complete. The Go service connects to PostgreSQL, exposes `GET /healthz`, and shuts down gracefully. Booking endpoints and business tests are planned next.
 
 ## Scope
 
@@ -19,7 +19,7 @@ The selected API consists of:
 
 The [API contract](api/README.md) is confirmed: positive integer IDs, RFC 3339 input timestamps, UTC responses, and consistent errors with request IDs. Endpoint implementation is pending.
 
-Catalog data will be seeded. A cURL client will demonstrate the workflow. Authentication, catalog administration, cancellation, rescheduling, temporary holds, and a separate availability endpoint are outside scope.
+Catalog data is seeded with deterministic IDs and resource combinations. A cURL client will demonstrate the workflow. Authentication, catalog administration, cancellation, rescheduling, temporary holds, and a separate availability endpoint are outside scope.
 
 Start times must be in the future, include a timezone offset, and are normalized to UTC. The service type determines duration, and `[start, end)` intervals allow back-to-back appointments. Resources are available unless booked, without working-hours or maintenance schedules. Booking validates the seeded customer/vehicle relationship but does not verify customer identity. See [Architecture assumptions](docs/architecture.md#assumptions).
 
@@ -28,7 +28,7 @@ Start times must be in the future, include a timezone offset, and are normalized
 - Go 1.27.1 with `net/http` and `http.ServeMux`.
 - PostgreSQL 18.6 on Alpine 3.23.
 - `pgx/v5` 5.11.0 with `pgxpool`.
-- `golang-migrate` 4.19.1 with SQL migration files, starting with the schema step.
+- `golang-migrate` 4.19.1 with SQL migration files.
 - Docker Compose for the local application and database.
 - `READ COMMITTED` transactions with a dealership row lock before checking availability.
 
@@ -38,10 +38,11 @@ See [Architecture](docs/architecture.md) for component responsibilities, data fl
 
 Prerequisites are Go 1.27.1, Docker with Compose, GNU Make, and cURL.
 
-Start the complete local environment:
+Initialize the database and start the complete local environment:
 
 ```bash
 cp .env.example .env
+make db-init
 make up
 curl --fail http://localhost:8080/healthz
 ```
@@ -52,16 +53,21 @@ A healthy service returns:
 {"database":"up","status":"ok"}
 ```
 
-Stop the containers while preserving PostgreSQL data:
+Database operations are available separately:
 
 ```bash
-make down
+make migrate-up       # Apply pending migrations
+make migrate-version  # Show the current schema version
+make seed             # Load deterministic demonstration data
+make db-verify        # Verify seed relationships, constraints, and indexes
 ```
 
-For local Go development, start PostgreSQL and run the API outside its container:
+`make migrate-down` reverts the latest migration and deletes its schema data. Stop containers while preserving PostgreSQL data with `make down`.
+
+For local Go development, initialize the database once and run the API outside its container:
 
 ```bash
-make db-up
+make db-init
 make run
 ```
 
@@ -71,13 +77,14 @@ Current verification commands are:
 make build
 make test
 make vet
-# Or run test and vet together:
+make db-verify
+# Or run the current Go checks together:
 make check
 ```
 
-Use `make help` to list all available commands. Migration, seed, and booking demonstration commands will be added with the schema and API. The current commands have been verified against the containerized environment. Business-rule and concurrency tests remain planned; see the [test plan](tests/README.md).
+Use `make help` to list all available commands. These commands have been verified against a fresh containerized database. Business-rule and concurrency tests remain planned; see the [test plan](tests/README.md).
 
-## Planned project structure
+## Project structure
 
 ```text
 .
@@ -94,7 +101,8 @@ Use `make help` to list all available commands. Migration, seed, and booking dem
 |   `-- config/               # Validated environment configuration
 |-- database/
 |   |-- migrations/           # Versioned SQL schema changes
-|   `-- seeds/                # Demonstration data
+|   |-- seeds/                # Deterministic demonstration data
+|   `-- verify.sql            # Schema and seed verification
 |-- api/                      # API contract documentation
 |-- tests/
 |   |-- integration/          # PostgreSQL and concurrency tests
@@ -103,10 +111,10 @@ Use `make help` to list all available commands. Migration, seed, and booking dem
 `-- scripts/                  # Setup and demonstration helpers
 ```
 
-The tree shows the intended implementation layout. Source, migration, and test directories will be created when their first real files are added. Go unit tests will live beside the corresponding implementation as `*_test.go` files.
+The tree combines implemented environment and database files with planned booking and test packages. Planned directories will be created with their first real files. Go unit tests will live beside the corresponding implementation as `*_test.go` files.
 
 ## AI Collaboration Narrative
 
 I used AI to analyze requirements and compare designs, then selected a small Go/PostgreSQL backend focused on booking correctness. I reviewed the proposals against the brief and narrowed the scope to preserve time for tests, documentation, and the demonstration. Design review clarified customer associations, atomic resource allocation, and the conditions needed for meaningful concurrency tests.
 
-I verified the current environment by compiling and vetting the Go service, starting both containers, checking database connectivity and the health response, retaining data across a database restart, and observing graceful shutdown. Booking quality will be refined through the planned business-rule and concurrent PostgreSQL tests.
+I verified the environment by compiling and vetting the service, checking health and graceful shutdown, and rebuilding the database from an empty volume. I refined the schema with composite foreign keys and executable checks for invalid relationships, intervals, qualifications, and indexes. Booking quality will be assessed through the planned business-rule and concurrent PostgreSQL tests.

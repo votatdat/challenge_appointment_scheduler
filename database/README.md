@@ -1,27 +1,47 @@
-# Persistence plan
+# PostgreSQL persistence
 
-Selected tools: **PostgreSQL**, `pgx/v5` with `pgxpool`, and `golang-migrate` with SQL files. Status: proposed schema; migrations are not implemented. Exact versions remain to be pinned.
+The database uses PostgreSQL 18.6, `golang-migrate` 4.19.1, and versioned SQL files. The initial migration and deterministic demonstration data are implemented.
 
-| Entity | Purpose |
+## Data model
+
+| Entity | Stored relationship |
 | --- | --- |
-| Customer | Customer associated with the appointment. |
-| Vehicle | Seeded vehicle receiving service, associated with a customer. |
-| Dealership | Location providing resources and service. |
-| ServiceType | Service definition, duration, and qualification requirements. |
-| Technician | Dealership technician eligible for allocation. |
-| TechnicianQualification | Qualifications used to match a technician to a service. |
-| ServiceBay | Dealership bay eligible for allocation. |
-| Appointment | Confirmed booking linking customer, vehicle, service, dealership, technician, bay, and start/end times. |
+| Customer | Owns one or more seeded vehicles. |
+| Vehicle | Belongs to exactly one customer. |
+| Dealership | Owns technicians and service bays and forms the booking lock boundary. |
+| ServiceType | Defines a positive duration in minutes. |
+| Technician | Belongs to one dealership. |
+| TechnicianQualification | Links a technician to a service type they can perform. |
+| ServiceBay | Belongs to one dealership. |
+| Appointment | Links the customer, vehicle, dealership, service, qualified technician, bay, and positive time interval. |
 
-## Schema work
+All IDs are positive `bigint` identity values. Appointment instants use `timestamptz`, and only `CONFIRMED` appointments are stored. Composite foreign keys prevent customer/vehicle mismatches, cross-dealership technician or bay assignments, and unqualified technician assignments.
 
-- Define keys, relationships, validation constraints, and required indexes.
-- Use positive integer IDs for catalog records and server-assigned positive integer appointment IDs, as defined by the [API contract](../api/README.md).
-- Implement the selected dealership row lock before availability checks in a READ COMMITTED transaction. See [architecture.md](../docs/architecture.md) for the protocol and limitations.
-- Ensure both resource assignments and the appointment are persisted atomically.
-- Preserve each seeded vehicle's customer association and validate it during booking.
-- Store appointment instants consistently with application UTC normalization. Derive the end from the service duration and use `[start, end)` overlap checks.
-- Follow the confirmed availability assumption: bookings occupy resources; shifts, opening hours, breaks, holidays, and bay maintenance are not modeled.
-- Add versioned schema changes to `migrations/` and deterministic demo data to `seeds/`.
+Indexes support lookups by customer, dealership, qualification, and appointment intervals by technician or bay. Overlap checks remain part of the planned booking transaction described in [architecture.md](../docs/architecture.md).
 
-Sample data should include qualified and unqualified technicians, more than one dealership, occupied resources, and an alternate available resource pair. Include at least two customer/vehicle associations to test mismatches. Test data must remain isolated from demonstration data. See [Architecture assumptions](../docs/architecture.md#assumptions).
+## Commands
+
+```bash
+make db-init          # Apply migrations and load demonstration data
+make migrate-up       # Apply pending migrations
+make migrate-version  # Show the current migration version
+make seed             # Reload the deterministic demonstration data
+make db-verify        # Verify relationships, constraints, and indexes
+make migrate-down     # Revert the latest migration and its schema data
+```
+
+`make db-verify` is safe to repeat. The seed uses fixed IDs and upserts, while migration execution reports `no change` after the schema is current.
+
+## Demonstration data
+
+| IDs | Data |
+| --- | --- |
+| Dealerships 1-2 | Central Service Centre and Riverside Service Centre. |
+| Customers 1-2 | Alice Nguyen and Ben Carter. |
+| Vehicles 1-3 | Two vehicles for customer 1 and one for customer 2. |
+| Services 1-3 | Oil Change (60 minutes), Brake Inspection (90), and Wheel Alignment (45). |
+| Technicians 1-5 | Dealership-specific qualifications; technician 3 is intentionally unqualified. |
+| Bays 1-4 | Two bays at each dealership. |
+| Appointment 1 | Technician 1 and bay 1 occupied from 10:00 to 11:00 UTC on January 15, 2099. |
+
+At dealership 1, technicians 1 and 2 can both perform service 1, and bays 1 and 2 provide an alternative resource pair. This supports deterministic success, occupied-resource, unqualified-resource, wrong-dealership, and customer/vehicle mismatch scenarios.

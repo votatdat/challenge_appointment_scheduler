@@ -3,10 +3,11 @@ SHELL := /bin/sh
 GO ?= go
 DOCKER_COMPOSE ?= docker compose
 APP_BINARY := bin/scheduler-api
+MIGRATE := $(DOCKER_COMPOSE) run --rm migrate
 
 .DEFAULT_GOAL := help
 
-.PHONY: help env db-up up down logs run build test fmt vet check clean
+.PHONY: help env db-up migrate-up migrate-down migrate-version seed db-init db-verify up down logs run build test fmt vet check clean
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -17,7 +18,24 @@ env: ## Create .env from .env.example when it is missing
 db-up: env ## Start PostgreSQL and wait until it is healthy
 	$(DOCKER_COMPOSE) up -d --wait db
 
-up: env ## Build and start the app and PostgreSQL
+migrate-up: db-up ## Apply all pending database migrations
+	$(MIGRATE) up
+
+migrate-down: db-up ## Revert the latest database migration
+	$(MIGRATE) down 1
+
+migrate-version: db-up ## Show the current database migration version
+	$(MIGRATE) version
+
+seed: migrate-up ## Load deterministic demonstration data
+	$(DOCKER_COMPOSE) exec -T db sh -c 'psql --set ON_ERROR_STOP=1 --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB"' < database/seeds/demo.sql
+
+db-init: seed ## Apply migrations and load demonstration data
+
+db-verify: db-init ## Verify seeded data and database constraints
+	$(DOCKER_COMPOSE) exec -T db sh -c 'psql --set ON_ERROR_STOP=1 --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB"' < database/verify.sql
+
+up: env migrate-up ## Build and start the app and PostgreSQL
 	$(DOCKER_COMPOSE) up -d --build --wait
 
 down: ## Stop containers and preserve PostgreSQL data
@@ -26,7 +44,7 @@ down: ## Stop containers and preserve PostgreSQL data
 logs: ## Follow app and PostgreSQL logs
 	$(DOCKER_COMPOSE) logs -f app db
 
-run: env db-up ## Run the API locally with Go
+run: env migrate-up ## Run the API locally with Go
 	set -a; . ./.env; set +a; $(GO) run ./cmd/api
 
 build: ## Build the API binary
