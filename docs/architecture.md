@@ -4,7 +4,7 @@
 
 This document describes the selected design for the Unified Service Scheduler. It covers the architecture, component responsibilities, data flow, technology choices, observability strategy, and GenAI use during design.
 
-The design choices below are recorded in [My decision](plan.md#my-decision). Domain assumptions and the [API contract](api/README.md) are confirmed. Implementation and verification are pending; exact runtime and dependency versions will be pinned during setup.
+The design choices below are recorded in [My decision](plan.md#my-decision). Domain assumptions and the [API contract](../api/README.md) are confirmed. The local application environment and database connectivity are implemented and verified. Appointment schema, booking, retrieval, and domain tests remain planned.
 
 ## Requirements
 
@@ -18,45 +18,47 @@ The design must protect against overlapping bookings through the supported API a
 flowchart LR
     Client["cURL client"] --> HTTP["HTTP API: net/http + ServeMux"]
     subgraph GoApplication["One Go application"]
-        HTTP --> Booking["Booking workflow"]
-        HTTP --> Retrieval["Appointment retrieval"]
-        Booking --> Store["PostgreSQL access: pgx/v5 + pgxpool"]
-        Retrieval --> Store
-        HTTP --> Logs["Structured request logs"]
-        Booking --> Logs
+        HTTP --> Health["Database health check"]
+        HTTP -. planned .-> Booking["Booking workflow"]
+        HTTP -. planned .-> Retrieval["Appointment retrieval"]
+        Health --> Store["PostgreSQL access: pgx/v5 + pgxpool"]
+        Booking -. planned .-> Store
+        Retrieval -. planned .-> Store
+        HTTP --> Logs["Structured lifecycle logs"]
     end
     Store --> DB[(PostgreSQL)]
-    Migrations["golang-migrate + SQL files"] --> DB
+    Migrations["golang-migrate + SQL files: planned"] -.-> DB
 ```
 
-The diagram represents the target implementation. It does not indicate deployed components or completed functionality.
+Solid paths are implemented and verified. Dotted paths show the next planned application behavior.
 
 ## Components
 
-| Component | Location | Responsibility |
+| Component | Location | Status and responsibility |
 | --- | --- | --- |
-| Application entry point | `cmd/api/` | Load configuration, connect dependencies, start the HTTP server, and shut down cleanly. |
-| HTTP API | `internal/httpapi/` | Route requests, decode and validate input, attach request IDs, and map results to HTTP responses. |
-| Booking workflow | `internal/appointments/` | Coordinate reference validation, duration calculation, resource allocation, and appointment creation. |
-| Catalog model | `internal/catalog/` | Represent customers, vehicles, dealerships, service types, technicians, qualifications, and bays. |
-| PostgreSQL access | `internal/postgres/` | Execute SQL, own transaction handling, and retrieve persisted appointments. |
-| Configuration | `internal/config/` | Load and validate connection and server settings. |
-| Schema and seed data | `database/` | Apply versioned migrations and load reproducible demonstration data. |
+| Application entry point | `cmd/api/` | Implemented: load configuration, connect dependencies, start the HTTP server, and shut down cleanly. |
+| HTTP API | `internal/httpapi/` | Health route implemented; appointment routing, validation, request IDs, and response mapping are planned. |
+| Booking workflow | `internal/appointments/` | Planned: coordinate reference validation, duration calculation, resource allocation, and appointment creation. |
+| Catalog model | `internal/catalog/` | Planned: represent customers, vehicles, dealerships, service types, technicians, qualifications, and bays. |
+| PostgreSQL access | `internal/postgres/` | Connection pool and startup ping implemented; transaction handling and appointment queries are planned. |
+| Configuration | `internal/config/` | Implemented: load and validate connection, timeout, pool, and server settings. |
+| Schema and seed data | `database/` | Planned: apply versioned migrations and load reproducible demonstration data. |
 
-These are packages within one application, not independent services. Booking code should express the business workflow without depending on HTTP response details.
+These are packages within one application, not independent services. Booking code will express the business workflow without depending on HTTP response details.
 
 ## Selected technologies and rationale
 
-| Choice | Rationale |
-| --- | --- |
-| Go | Selected implementation language for a single backend service. |
-| `net/http` and `http.ServeMux` | Standard-library HTTP handling keeps the two-endpoint API small. See the [Go HTTP documentation](https://pkg.go.dev/net/http#ServeMux). |
-| PostgreSQL | Relational persistence and transactions for the appointment and its resource associations. |
-| `pgx/v5` and `pgxpool` | Explicit PostgreSQL access, transactions, and pooled connections. See the [pgxpool documentation](https://pkg.go.dev/github.com/jackc/pgx/v5/pgxpool). |
-| `golang-migrate` and SQL files | Versioned schema changes that remain readable alongside the transaction queries. See the [migration project](https://github.com/golang-migrate/migrate). |
-| cURL | A repeatable client demonstration without a separate frontend. |
+| Choice | Version | Rationale |
+| --- | --- | --- |
+| Go | 1.27.1 | Selected implementation language for a single backend service. |
+| `net/http` and `http.ServeMux` | Go standard library | Standard-library HTTP handling keeps the small API direct. |
+| PostgreSQL | 18.6 on Alpine 3.23 | Relational persistence and transactions for appointments and resource associations. |
+| `pgx/v5` and `pgxpool` | 5.11.0 | Explicit PostgreSQL access, transactions, and pooled connections. |
+| `golang-migrate` and SQL files | 4.19.1 | Versioned, reviewable schema changes; introduced with the schema step. |
+| Docker Compose | Compose v5 | Reproducible local application and database services with persistent storage. |
+| cURL | Local client | A repeatable demonstration without a separate frontend. |
 
-Dependency and runtime versions will be pinned during setup. SQL keeps overlap checks and the locking protocol visible for review.
+SQL keeps overlap checks and the locking protocol visible for review.
 
 ## Booking data flow
 
@@ -70,7 +72,7 @@ Dependency and runtime versions will be pinned during setup. SQL keeps overlap c
 
 All statements in this operation must use the same transaction, not independent pool calls. Every failure path must release the transaction through rollback or completion.
 
-`GET /appointments/{id}` returns `200 OK` with the same persisted appointment representation, without allocating resources. All returned timestamps are UTC RFC 3339 strings. See the confirmed [API contract](api/README.md) for fields and error codes.
+`GET /appointments/{id}` returns `200 OK` with the same persisted appointment representation, without allocating resources. All returned timestamps are UTC RFC 3339 strings. See the confirmed [API contract](../api/README.md) for fields and error codes.
 
 ## Data model
 
@@ -131,26 +133,20 @@ Customers and vehicles are seeded reference data. Each seeded vehicle is associa
 
 ## Observability and failure handling
 
-Planned implementation:
+The environment currently provides JSON lifecycle logs, bounded startup and health-check database pings, HTTP read-header and shutdown timeouts, a database-backed health route, and graceful signal handling.
 
-- Structured logs with request ID, operation, outcome, duration, and appointment ID when available.
-- Correlation between HTTP requests and transaction failures without logging customer contact data or complete request bodies.
-- Bounded request/database waits, controlled error responses, and clean shutdown.
-- Errors contain an `error` object with `code`, `message`, and `request_id`; logs carry the same request ID. Invalid input maps to `400`, missing records to `404`, capacity conflicts to `409`, known dependency unavailability to `503`, and unexpected failures to `500`.
-- README instructions for checking startup, connectivity, migrations, and database failures.
+The appointment API will add request IDs, operation outcomes, duration, and appointment IDs when available. It will avoid customer contact data and complete request bodies. Errors will contain an `error` object with `code`, `message`, and `request_id`; invalid input maps to `400`, missing records to `404`, capacity conflicts to `409`, known dependency unavailability to `503`, and unexpected failures to `500`.
 
-Metrics strategy: count booking attempts, successes, capacity conflicts, and unexpected failures; measure request and transaction duration. Logs provide initial diagnostic evidence. No metrics exporter or dashboard is in scope.
-
-Tracing strategy: request IDs correlate operations in this single service. Distributed tracing is not planned. No logs, metrics, or traces have been implemented yet.
+The planned metrics strategy counts booking attempts, successes, capacity conflicts, and unexpected failures and measures request and transaction duration. Logs provide initial diagnostic evidence; no metrics exporter or dashboard is in scope. Request IDs will provide correlation inside this single service, and distributed tracing is not planned.
 
 ## Verification strategy
 
 Business tests will cover qualification, dealership matching, timezone normalization, past starts, service-derived end times, interval boundaries, customer/vehicle matching, alternate resources, and persisted associations. Integration tests will exercise the actual PostgreSQL transaction, including rollback and competing requests for a single eligible resource pair.
 
-The concurrency test must use multiple database connections and verify committed appointments as well as responses. A clean-setup rehearsal will verify the documented commands and persistence across restart. See the [test plan](tests/README.md).
+The concurrency test must use multiple database connections and verify committed appointments as well as responses. A clean-setup rehearsal will verify the documented commands and persistence across restart. See the [test plan](../tests/README.md).
 
 ## GenAI use during design
 
 AI assisted with requirements analysis, scope comparison, identifying booking invariants, and drafting component boundaries. I selected the technologies and transaction strategy and limited the scope to a complete submission within the available time.
 
-Review clarified that both resources must be allocated atomically and that availability checks must follow the dealership lock. The design records its contention and response-loss limitations. Implementation correctness remains to be established through the planned tests; no test result is claimed here.
+Review clarified that both resources must be allocated atomically and that availability checks must follow the dealership lock. The design records its contention and response-loss limitations. Environment behavior is verified; booking correctness remains to be established through the planned tests.

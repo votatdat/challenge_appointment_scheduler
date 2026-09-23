@@ -1,7 +1,11 @@
-# Development helpers
+# Development operations
 
-Planned helpers cover local setup, SQL migrations, seed data, and a cURL booking demonstration.
+The root Makefile provides the verified environment commands:
 
-Test database resets must remain isolated from demonstration or production data.
+- `make up` builds and starts the application and PostgreSQL.
+- `make db-up` starts PostgreSQL for local Go development.
+- `make run` runs the API locally.
+- `make build`, `make test`, `make vet`, and `make check` verify the current Go code.
+- `make down` stops containers while preserving PostgreSQL data.
 
-Document the final commands in the root README.
+Migration, seed, isolated test reset, and cURL demonstration commands will be added with their implementations.

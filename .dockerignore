@@ -1,0 +1,7 @@
+.git
+.gitignore
+.env
+_Requirements
+*.log
+README.md
+docs

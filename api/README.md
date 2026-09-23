@@ -95,6 +95,6 @@ The 409 response does not expose which resource prevented allocation. Waiting fo
 
 ## Domain rules and scope
 
-Intervals use `[start, end)`, allowing back-to-back bookings. Resource availability accounts for existing appointments, not shifts, opening hours, breaks, holidays, or maintenance schedules. Customer/vehicle association checks do not authenticate the caller or verify identity. See [Architecture assumptions](../architecture.md#assumptions).
+Intervals use `[start, end)`, allowing back-to-back bookings. Resource availability accounts for existing appointments, not shifts, opening hours, breaks, holidays, or maintenance schedules. Customer/vehicle association checks do not authenticate the caller or verify identity. See [Architecture assumptions](../docs/architecture.md#assumptions).
 
 The API excludes availability browsing, catalog administration, cancellation, rescheduling, holds, authentication, and idempotency guarantees. Runnable cURL examples will be added with implementation.

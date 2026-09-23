@@ -1,17 +1,17 @@
 # Go application structure
 
-This document describes the planned internal packages for a single Go backend using PostgreSQL. Packages will be created with their implementation; no application code exists yet.
+The repository contains the environment layer for a single Go backend using PostgreSQL. Booking packages will be created with their first implementation files.
 
-| Directory | Responsibility |
+| Directory | Status and responsibility |
 | --- | --- |
-| `httpapi/` | HTTP routing, request validation, and response/error mapping. |
-| `appointments/` | Service duration, interval rules, resource selection, and booking workflow. |
-| `catalog/` | Customer, vehicle, dealership, service type, technician qualification, and bay models. |
-| `postgres/` | PostgreSQL queries, persistence, and transaction handling. |
-| `config/` | Load and validate application configuration. |
+| `httpapi/` | Implements routing and the database-backed health response; appointment validation and response mapping are planned. |
+| `appointments/` | Planned: service duration, interval rules, resource selection, and booking workflow. |
+| `catalog/` | Planned: customer, vehicle, dealership, service type, technician qualification, and bay models. |
+| `postgres/` | Implements the PostgreSQL connection pool and startup check; booking queries and transactions are planned. |
+| `config/` | Implements validated environment configuration for HTTP and database settings. |
 
-The future `cmd/api/main.go` entry point will configure dependencies, start the HTTP server, and manage shutdown. Keep booking rules independent of HTTP details. Define one clear transaction boundary for creating a confirmed appointment.
+`cmd/api/main.go` configures dependencies, starts the HTTP server, and handles graceful shutdown. Booking rules will remain independent of HTTP details and use one clear transaction boundary for creating a confirmed appointment.
 
-Place Go unit tests beside the packages they verify as `*_test.go`. Reserve `tests/integration/` for PostgreSQL integration and concurrency suites and `tests/e2e/` for HTTP booking workflows.
+Go unit tests will live beside the packages they verify as `*_test.go`. PostgreSQL integration and concurrency suites will live in `tests/integration/`, and HTTP booking workflows will live in `tests/e2e/`.
 
-Selected tools are `net/http` with `http.ServeMux`, `pgx/v5` with `pgxpool`, and `golang-migrate` with SQL files. The module path and exact versions remain to be pinned. See [architecture.md](../architecture.md) for the selected design.
+The module uses Go 1.27.1, `net/http` with `http.ServeMux`, and `pgx/v5` 5.11.0 with `pgxpool`. `golang-migrate` 4.19.1 with SQL files will be introduced with the schema.

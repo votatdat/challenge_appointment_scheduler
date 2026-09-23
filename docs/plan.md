@@ -10,13 +10,14 @@ Deliver the Unified Service Scheduler for Scenario A: a Go and PostgreSQL backen
 
 | Area | Status | Evidence or remaining work |
 | --- | --- | --- |
-| Project structure | Planned | The README describes the layout; implementation directories will be created with their first files. |
+| Project structure | In progress | Environment packages exist; booking, schema, and test directories will be created with their first files. |
 | Technology and concurrency choices | Selected | Recorded in [My decision](#my-decision). |
-| System design | Design recorded | [Architecture](architecture.md) covers confirmed decisions; versions and physical schema details will be finalized during implementation. |
+| System design | Design recorded | [Architecture](architecture.md) covers confirmed decisions and pinned environment versions. |
 | Domain assumptions | Confirmed | Time, working hours, and customer/vehicle validation are documented in [Architecture](architecture.md#assumptions). |
-| Scope freeze | Complete | Technology choices, domain assumptions, and the [API contract](api/README.md) are confirmed. |
-| Application and database | Not implemented | Go module, server, migrations, and seed data remain to be created. |
-| Verification | Not run | [Test plan](tests/README.md) defines the intended coverage. |
+| Scope freeze | Complete | Technology choices, domain assumptions, and the [API contract](../api/README.md) are confirmed. |
+| Application environment | Complete | The Go service, PostgreSQL connection pool, health route, Compose services, persistent volume, and Make targets run successfully. |
+| Domain and schema | Not implemented | Migrations, seed data, booking workflow, and appointment endpoints begin in Step 3. |
+| Verification | Environment verified | Build, test command, vet, Compose startup, health, volume retention, and graceful shutdown pass; domain tests remain. |
 | Video and submission | Not completed | Recording and final repository checks follow implementation. |
 
 Completed checkboxes record finished work. Unchecked items remain planned and do not imply implementation or successful verification.
@@ -45,7 +46,7 @@ I selected a single Go backend with PostgreSQL and a cURL client. The implementa
 
 The concurrency tradeoff is reduced throughput within a dealership. All booking writers must follow the same locking protocol. The full data flow and limitations are documented in [architecture.md](architecture.md).
 
-The domain assumptions and [API contract](api/README.md) are confirmed, completing Step 1. Exact versions will be pinned during setup. These choices describe the intended implementation, not completed application behavior.
+The domain assumptions and [API contract](../api/README.md) are confirmed, completing Step 1. Step 2 pins the runtime and dependency versions and establishes the runnable local environment. Booking and persistence choices still describe intended behavior until their implementation is verified.
 
 ## Scope boundaries
 
@@ -61,16 +62,16 @@ Catalog administration, authentication, cancellation, rescheduling, temporary ho
 - [x] Confirm time, working-hours, and customer/vehicle validation assumptions in the architecture document.
 - [x] Finalize request/response schemas and error behavior in the API document.
 
-**Completion evidence:** [Architecture](architecture.md) records assumptions, the transaction boundary, and limitations. The [API contract](api/README.md) defines fields, success responses, and error behavior. Step 1 is complete; implementation starts with Step 2.
+**Completion evidence:** [Architecture](architecture.md) records assumptions, the transaction boundary, and limitations. The [API contract](../api/README.md) defines fields, success responses, and error behavior. Step 1 is complete; implementation starts with Step 2.
 
 ### 2. Start the environment - 90 minutes
 
-- [ ] Set up Go and PostgreSQL; initialize the Go module and pin versions.
-- [ ] Add a minimal server, configuration, and database connection.
-- [ ] Configure persistent database storage and document startup.
-- [ ] Verify connectivity and clean shutdown.
+- [x] Initialize the Go 1.27.1 module with `pgx/v5` 5.11.0 and select PostgreSQL 18.6 on Alpine 3.23.
+- [x] Add the HTTP server, validated environment configuration, PostgreSQL connection pool, and database-backed health route.
+- [x] Add application and database containers, a persistent PostgreSQL volume, example environment values, and Make targets.
+- [x] Verify database connectivity, health reporting, local and container builds, static checks, data retention, and graceful shutdown.
 
-**Completion evidence:** Startup succeeds using the documented instructions.
+**Completion evidence:** `make up` starts a healthy application and database; `GET /healthz` reports database connectivity. Local build, test command, vet, persistent-volume restart, and graceful shutdown checks pass.
 
 ### 3. Create schema and seed data - 90 minutes
 
