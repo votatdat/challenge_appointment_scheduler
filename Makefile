@@ -7,7 +7,7 @@ MIGRATE := $(DOCKER_COMPOSE) run --rm migrate
 
 .DEFAULT_GOAL := help
 
-.PHONY: help env db-up migrate-up migrate-down migrate-version seed db-init db-verify up down logs run build test fmt vet check clean
+.PHONY: help env db-up migrate-up migrate-down migrate-version seed db-init db-verify up down logs run build test test-integration fmt vet check clean
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -53,6 +53,9 @@ build: ## Build the API binary
 
 test: ## Run all Go tests
 	$(GO) test ./...
+
+test-integration: db-up ## Run booking tests in isolated PostgreSQL schemas
+	set -a; . ./.env; set +a; TEST_DATABASE_URL="$${TEST_DATABASE_URL:-$$DATABASE_URL}" $(GO) test -tags=integration -count=1 -timeout=90s ./tests/integration/...
 
 fmt: ## Format Go source files
 	$(GO) fmt ./...

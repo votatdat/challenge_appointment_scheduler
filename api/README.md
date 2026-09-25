@@ -1,6 +1,6 @@
 # API contract
 
-**Status:** Contract confirmed. The server and executable client examples are not implemented yet.
+**Status:** Contract confirmed. The booking service and transaction are implemented; appointment HTTP endpoints, error mapping, and executable client examples are pending.
 
 Request bodies and responses use JSON (`Content-Type: application/json`). Timestamps use RFC 3339 with a timezone offset, including `Z` for UTC. All returned appointment timestamps are normalized to UTC.
 

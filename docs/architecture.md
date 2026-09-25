@@ -4,7 +4,7 @@
 
 This document describes the selected design for the Unified Service Scheduler. It covers the architecture, component responsibilities, data flow, technology choices, observability strategy, and GenAI use during design.
 
-The design choices below are recorded in [My decision](plan.md#my-decision). Domain assumptions and the [API contract](../api/README.md) are confirmed. The local environment, database connectivity, schema, and demonstration data are implemented and verified. Booking, retrieval, and domain tests remain planned.
+The design choices below are recorded in [My decision](plan.md#my-decision). Domain assumptions and the [API contract](../api/README.md) are confirmed. The local environment, schema, demonstration data, and booking transaction are implemented and verified. Booking validation and PostgreSQL integration tests pass. HTTP creation, retrieval, and response mapping remain planned.
 
 ## Requirements
 
@@ -22,7 +22,7 @@ flowchart LR
         HTTP -. planned .-> Booking["Booking workflow"]
         HTTP -. planned .-> Retrieval["Appointment retrieval"]
         Health --> Store["PostgreSQL access: pgx/v5 + pgxpool"]
-        Booking -. planned .-> Store
+        Booking --> Store
         Retrieval -. planned .-> Store
         HTTP --> Logs["Structured lifecycle logs"]
     end
@@ -38,13 +38,13 @@ Solid paths are implemented and verified. Dotted application paths show the next
 | --- | --- | --- |
 | Application entry point | `cmd/api/` | Implemented: load configuration, connect dependencies, start the HTTP server, and shut down cleanly. |
 | HTTP API | `internal/httpapi/` | Health route implemented; appointment routing, validation, request IDs, and response mapping are planned. |
-| Booking workflow | `internal/appointments/` | Planned: coordinate reference validation, duration calculation, resource allocation, and appointment creation. |
+| Booking workflow | `internal/appointments/` | Implemented: validate IDs and RFC 3339 timestamps, normalize UTC, define results and domain errors, and call the atomic booking repository. |
 | Catalog model | `internal/catalog/` | Planned: represent customers, vehicles, dealerships, service types, technicians, qualifications, and bays. |
-| PostgreSQL access | `internal/postgres/` | Connection pool and startup ping implemented; transaction handling and appointment queries are planned. |
+| PostgreSQL access | `internal/postgres/` | Implemented: connection pool and booking transaction, including catalog checks, duration calculation, resource selection, insertion, commit, and rollback. |
 | Configuration | `internal/config/` | Implemented: load and validate connection, timeout, pool, and server settings. |
 | Schema and seed data | `database/` | Implemented: apply a reversible schema migration, load deterministic demonstration data, and verify constraints and indexes. |
 
-These are packages within one application, not independent services. Booking code will express the business workflow without depending on HTTP response details.
+These are packages within one application, not independent services. The booking service depends on a narrow `Creator` interface. PostgreSQL owns the entire allocation transaction so each query uses the same connection; booking code has no HTTP dependency.
 
 ## Selected technologies and rationale
 
@@ -62,15 +62,19 @@ SQL keeps overlap checks and the locking protocol visible for review.
 
 ## Booking data flow
 
-1. Accept `POST /appointments`, validate positive integer IDs and an RFC 3339 start time with a timezone offset, normalize it to UTC, and require a future start time.
+The service and transaction below are implemented; HTTP request handling and response mapping are Step 5 work.
+
+1. The booking service receives input from its caller, eventually `POST /appointments`, validates positive integer IDs and an RFC 3339 start time with a timezone offset, normalizes it to UTC, and requires a future start time.
 2. Begin a `READ COMMITTED` transaction through a pooled connection.
 3. Lock the requested dealership row using `SELECT ... FOR UPDATE`. A missing dealership produces a missing-record outcome.
 4. After obtaining the lock, validate catalog references and the vehicle's association with the supplied customer. Read the selected service duration and derive the appointment end time.
-5. Select a qualified technician and available bay at the requested dealership, considering the entire interval and alternative resources when a candidate is occupied.
+5. Select the lowest-ID qualified, available technician and the lowest-ID available bay at the dealership. For both resources, an overlap is `existing.start_time < requested.end_time AND existing.end_time > requested.start_time`. This considers the full interval and allows adjacent bookings.
 6. If either resource is unavailable, roll back and return a capacity-conflict outcome.
 7. Insert the appointment with both assignments and commit. After commit succeeds, return `201 Created`, a `Location` header, and the appointment representation.
 
-All statements in this operation must use the same transaction, not independent pool calls. Every failure path must release the transaction through rollback or completion.
+All statements use the same `READ COMMITTED` transaction. A five-second context deadline bounds acquisition, lock waits, queries, and commit. Deferred rollback uses a separate two-second context so request cancellation does not prevent cleanup. Start time is rechecked after the dealership lock is acquired.
+
+Input timestamps are normalized to UTC and truncated to PostgreSQL microsecond precision before validation and storage. End time is derived in SQL from the service duration. Returned times are UTC. Missing catalog rows, mismatched ownership, and no capacity have separate domain errors; unexpected SQL and commit errors retain their causes for the future HTTP error mapper.
 
 `GET /appointments/{id}` returns `200 OK` with the same persisted appointment representation, without allocating resources. All returned timestamps are UTC RFC 3339 strings. See the confirmed [API contract](../api/README.md) for fields and error codes.
 
@@ -97,7 +101,7 @@ All booking transactions acquire the dealership row lock before reading availabi
 
 At `READ COMMITTED`, later statements can observe changes committed before those statements start. After a waiting request acquires the dealership lock, its subsequent availability queries see the previous booking. This is the intended use of PostgreSQL's [row locks](https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ROWS) and [statement snapshots](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED).
 
-The guarantee depends on every booking writer using this protocol, each resource belonging to one dealership, and static catalog data. An in-process mutex is not the concurrency authority. The design must be verified with independent PostgreSQL connections.
+The guarantee depends on every booking writer using this protocol, each resource belonging to one dealership, and static catalog data. An in-process mutex is not the concurrency authority. The contention test observes six independent PostgreSQL sessions waiting on the dealership lock, then verifies one success, five conflicts, and one committed appointment.
 
 ### Tradeoffs and limits
 
@@ -143,7 +147,7 @@ The planned metrics strategy counts booking attempts, successes, capacity confli
 
 ## Verification strategy
 
-Business tests will cover qualification, dealership matching, timezone normalization, past starts, service-derived end times, interval boundaries, customer/vehicle matching, alternate resources, and persisted associations. Integration tests will exercise the actual PostgreSQL transaction, including rollback and competing requests for a single eligible resource pair.
+Current unit and PostgreSQL integration tests cover request validation, qualifications, dealership matching, UTC normalization, service-derived duration, overlap and adjacent intervals, customer/vehicle matching, alternate resources, and persisted associations. A deferred trigger injects a commit failure to verify rollback; a held dealership lock verifies cancellation. Each database test applies the migration in a temporary schema and cleans up that schema.
 
 The concurrency test must use multiple database connections and verify committed appointments as well as responses. A clean-setup rehearsal will verify the documented commands and persistence across restart. See the [test plan](../tests/README.md).
 
@@ -151,4 +155,4 @@ The concurrency test must use multiple database connections and verify committed
 
 AI assisted with requirements analysis, scope comparison, identifying booking invariants, and drafting component boundaries. I selected the technologies and transaction strategy and limited the scope to a complete submission within the available time.
 
-Review clarified that both resources must be allocated atomically and that availability checks must follow the dealership lock. The design records its contention and response-loss limitations. Environment and schema behavior are verified; booking correctness remains to be established through the planned tests.
+Review clarified that both resources must be allocated atomically and that availability checks must follow the dealership lock. The design records its contention and response-loss limitations. Environment, schema, and booking transaction behavior are verified. Review strengthened timestamp parsing and cancellation cleanup; HTTP integration and the remaining test-plan cases are still pending.

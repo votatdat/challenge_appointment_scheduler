@@ -4,7 +4,7 @@ A Go backend for booking vehicle service appointments at a dealership. A booking
 
 This project is the backend submission for Scenario A of the Keyloop Technical Assessment.
 
-**Status:** Environment, schema, and demonstration data complete. The Go service connects to PostgreSQL, exposes `GET /healthz`, and shuts down gracefully. Booking endpoints and business tests are planned next.
+**Status:** Environment, schema, and booking transaction implemented. The booking service validates requests, allocates resources under a dealership lock, and persists confirmed appointments. Unit and PostgreSQL integration tests pass. The running HTTP server currently exposes only `GET /healthz`; appointment endpoints are next.
 
 ## Scope
 
@@ -78,11 +78,12 @@ make build
 make test
 make vet
 make db-verify
+make test-integration  # Real PostgreSQL booking tests in temporary schemas
 # Or run the current Go checks together:
 make check
 ```
 
-Use `make help` to list all available commands. These commands have been verified against a fresh containerized database. Business-rule and concurrency tests remain planned; see the [test plan](tests/README.md).
+Use `make help` to list all available commands. `make test-integration` starts PostgreSQL and uses `TEST_DATABASE_URL` when set, otherwise `DATABASE_URL` from `.env`. Each test applies the migration in a unique schema and removes that schema afterward, preserving demonstration data. The database role must be allowed to create schemas. See [test coverage and remaining work](tests/README.md).
 
 ## Project structure
 
@@ -97,7 +98,7 @@ Use `make help` to list all available commands. These commands have been verifie
 |   |-- httpapi/              # Health route; appointment routes planned
 |   |-- appointments/         # Booking rules and allocation
 |   |-- catalog/              # Catalog models and qualifications
-|   |-- postgres/             # Connection pool; booking queries planned
+|   |-- postgres/             # Connection pool and booking transaction
 |   `-- config/               # Validated environment configuration
 |-- database/
 |   |-- migrations/           # Versioned SQL schema changes
@@ -111,10 +112,10 @@ Use `make help` to list all available commands. These commands have been verifie
 `-- scripts/                  # Setup and demonstration helpers
 ```
 
-The tree combines implemented environment and database files with planned booking and test packages. Planned directories will be created with their first real files. Go unit tests will live beside the corresponding implementation as `*_test.go` files.
+The tree includes the implemented booking service, PostgreSQL transaction, and integration tests, plus planned catalog and HTTP test packages. Planned directories will be created with their first real files. Go unit tests will live beside the corresponding implementation as `*_test.go` files.
 
 ## AI Collaboration Narrative
 
 I used AI to analyze requirements and compare designs, then selected a small Go/PostgreSQL backend focused on booking correctness. I reviewed the proposals against the brief and narrowed the scope to preserve time for tests, documentation, and the demonstration. Design review clarified customer associations, atomic resource allocation, and the conditions needed for meaningful concurrency tests.
 
-I verified the environment by compiling and vetting the service, checking health and graceful shutdown, and rebuilding the database from an empty volume. I refined the schema with composite foreign keys and executable checks for invalid relationships, intervals, qualifications, and indexes. Booking quality will be assessed through the planned business-rule and concurrent PostgreSQL tests.
+Verification now includes unit tests and real PostgreSQL tests for persisted associations, overlapping intervals, alternative resources, rollback, and competing bookings. Review refined strict timestamp validation and cancellation cleanup. Six sessions competing for one resource pair produced one committed booking and five capacity conflicts; HTTP verification remains pending.

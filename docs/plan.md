@@ -10,15 +10,16 @@ Deliver the Unified Service Scheduler for Scenario A: a Go and PostgreSQL backen
 
 | Area | Status | Evidence or remaining work |
 | --- | --- | --- |
-| Project structure | In progress | Environment and database files exist; booking and test packages will be created with their first files. |
+| Project structure | In progress | Environment, database, booking, and integration-test packages exist; HTTP appointment handlers are next. |
 | Technology and concurrency choices | Selected | Recorded in [My decision](#my-decision). |
 | System design | Design recorded | [Architecture](architecture.md) covers confirmed decisions, schema boundaries, and pinned versions. |
 | Domain assumptions | Confirmed | Time, working hours, and customer/vehicle validation are documented in [Architecture](architecture.md#assumptions). |
 | Scope freeze | Complete | Technology choices, domain assumptions, and the [API contract](../api/README.md) are confirmed. |
 | Application environment | Complete | The Go service, PostgreSQL connection pool, health route, Compose services, persistent volume, and Make targets run successfully. |
 | Schema and seed data | Complete | Versioned migrations, relational constraints, lookup indexes, deterministic catalog data, and schema verification are implemented. |
-| Booking and API | Not implemented | The transaction workflow and appointment endpoints begin in Step 4. |
-| Verification | Environment and schema verified | Fresh initialization, repeat initialization, rollback/reapply, constraints, indexes, health, build, and vet pass; domain tests remain. |
+| Booking transaction | Complete | Validation, dealership locking, allocation, atomic commit, and rollback pass service-level tests. |
+| Appointment HTTP API | Not implemented | Creation, retrieval, and error mapping begin in Step 5. |
+| Verification | Booking tests pass | Unit tests, isolated PostgreSQL integration tests, race detection, build, and vet pass. Remaining business/concurrency cases and HTTP tests follow. |
 | Video and submission | Not completed | Recording and final repository checks follow implementation. |
 
 Completed checkboxes record finished work. Unchecked items remain planned and do not imply implementation or successful verification.
@@ -89,12 +90,12 @@ Catalog administration, authentication, cancellation, rescheduling, temporary ho
 
 ### 4. Implement safe booking - 2 hours
 
-- [ ] Validate references and the customer/vehicle association; require future start times, normalize them to UTC, and derive the end from the selected service duration.
-- [ ] Acquire the dealership lock before resource availability queries.
-- [ ] Select eligible resources for the entire interval, considering available alternatives.
-- [ ] Persist all associations atomically; handle no-capacity results and rollback.
+- [x] Validate references and the customer/vehicle association; require future start times, normalize them to UTC, and derive the end from the selected service duration.
+- [x] Acquire the dealership lock before resource availability queries.
+- [x] Select eligible resources for the entire interval, considering available alternatives.
+- [x] Persist all associations atomically; handle no-capacity results and rollback.
 
-**Completion evidence:** The booking operation creates valid appointments and rejects conflicting assignments.
+**Completion evidence:** Unit and PostgreSQL integration tests verify persisted associations, UTC and duration handling, resource conflicts and alternatives, failed-commit rollback, and cancellation. Six blocked database sessions produce one success, five capacity conflicts, and one committed row. The integration suite also passes with the race detector.
 
 ### 5. Expose two HTTP endpoints - 1 hour
 
@@ -105,6 +106,8 @@ Catalog administration, authentication, cancellation, rescheduling, temporary ho
 **Completion evidence:** The client can create and retrieve the same complete appointment.
 
 ### 6. Test business rules - 90 minutes
+
+Initial service-level coverage was added with Step 4; this phase reviews the full matrix and fills remaining cases.
 
 - [ ] Verify persisted associations on successful booking.
 - [ ] Reject technician and bay overlaps, including partial overlap and containment.
@@ -117,6 +120,8 @@ Catalog administration, authentication, cancellation, rescheduling, temporary ho
 **Completion evidence:** Focused unit and PostgreSQL integration tests pass for the documented rules.
 
 ### 7. Test concurrency and rollback - 90 minutes
+
+Step 4 already verifies six contending sessions, failed-commit rollback, and lock-wait cancellation. This phase adds the remaining concurrent resource combinations and HTTP verification.
 
 - [ ] Coordinate 5-10 requests with one eligible technician and bay for the interval.
 - [ ] Verify one success, remaining capacity conflicts, and one committed appointment.

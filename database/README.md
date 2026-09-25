@@ -17,7 +17,7 @@ The database uses PostgreSQL 18.6, `golang-migrate` 4.19.1, and versioned SQL fi
 
 All IDs are positive `bigint` identity values. Appointment instants use `timestamptz`, and only `CONFIRMED` appointments are stored. Composite foreign keys prevent customer/vehicle mismatches, cross-dealership technician or bay assignments, and unqualified technician assignments.
 
-Indexes support lookups by customer, dealership, qualification, and appointment intervals by technician or bay. Overlap checks remain part of the planned booking transaction described in [architecture.md](../docs/architecture.md).
+Indexes support lookups by customer, dealership, qualification, and appointment intervals by technician or bay. Overlap checks run inside the implemented dealership-locked booking transaction described in [architecture.md](../docs/architecture.md).
 
 ## Commands
 

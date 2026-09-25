@@ -1,6 +1,19 @@
 # Test plan
 
-Status: planned tests only. Test directories will be created with their first executable tests or fixtures.
+Status: input-validation unit tests and PostgreSQL booking integration tests are implemented. HTTP tests and the remaining business/concurrency cases are planned.
+
+## Run current tests
+
+```bash
+make test
+make test-integration
+```
+
+The integration target starts PostgreSQL and uses `TEST_DATABASE_URL` or the local `.env` database URL. Tests require schema-creation permission; each creates a unique schema, applies the real migration, loads independent fixtures, and removes the schema on cleanup. They do not reset demonstration tables. Integration tests use the `integration` build tag and fail if their database URL is missing.
+
+Verified coverage includes persisted associations, alternative resources, each resource's partial overlaps, technician containment, adjacent bookings, strict timestamp validation, service duration, invalid references, qualification and dealership filtering, failed commit rollback, and cancellation while waiting for the lock. The contention test waits until six database sessions are blocked, then checks one committed booking and five capacity conflicts.
+
+Remaining review includes HTTP contracts, explicit bay-containment and precision-boundary cases, simultaneous successful independent pairs, and cross-dealership concurrency. The checklists below remain the full target coverage.
 
 | Directory | Purpose |
 | --- | --- |
@@ -43,4 +56,4 @@ Coordinate independent requests so they compete for the same interval. With exac
 
 Also cover a shared technician with different bays, a shared bay with different technicians, and independent resource pairs that can both succeed. Repeat relevant cases across independent PostgreSQL connections; mocked repositories cannot validate the database's concurrency behavior.
 
-Performance experiments are outside the current delivery scope. Record actual test outcomes as implementation progresses; no result is claimed by this plan.
+Performance experiments are outside the current delivery scope. Current service-level test results are recorded above; HTTP and remaining concurrency coverage will be added with the later steps.
