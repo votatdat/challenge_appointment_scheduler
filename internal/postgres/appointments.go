@@ -17,7 +17,7 @@ type AppointmentStore struct {
 	pool *pgxpool.Pool
 }
 
-var _ appointments.Creator = (*AppointmentStore)(nil)
+var _ appointments.Repository = (*AppointmentStore)(nil)
 
 func NewAppointmentStore(pool *pgxpool.Pool) *AppointmentStore {
 	return &AppointmentStore{pool: pool}
@@ -25,7 +25,8 @@ func NewAppointmentStore(pool *pgxpool.Pool) *AppointmentStore {
 
 // Create allocates both resources under one dealership lock and returns only
 // after commit. All booking writers must use this protocol.
-func (s *AppointmentStore) Create(ctx context.Context, request appointments.BookingRequest) (appointments.Appointment, error) {
+func (s *AppointmentStore) Create(ctx context.Context, request appointments.BookingRequest) (result appointments.Appointment, err error) {
+	defer func() { err = databaseError(err) }()
 	ctx, cancel := context.WithTimeout(ctx, bookingTimeout)
 	defer cancel()
 
@@ -112,7 +113,6 @@ func (s *AppointmentStore) Create(ctx context.Context, request appointments.Book
 		return appointments.Appointment{}, referenceError(err, appointments.ErrNoAvailableResources, "select bay")
 	}
 
-	var result appointments.Appointment
 	err = tx.QueryRow(ctx, `
 		INSERT INTO appointments (
 			customer_id, vehicle_id, dealership_id, service_type_id,
@@ -141,4 +141,23 @@ func referenceError(err, missing error, operation string) error {
 		return missing
 	}
 	return fmt.Errorf("%s: %w", operation, err)
+}
+
+// Get reads a persisted appointment without allocating or locking resources.
+func (s *AppointmentStore) Get(ctx context.Context, id int64) (appointments.Appointment, error) {
+	ctx, cancel := context.WithTimeout(ctx, bookingTimeout)
+	defer cancel()
+	var result appointments.Appointment
+	err := s.pool.QueryRow(ctx, `SELECT id,customer_id,vehicle_id,dealership_id,service_type_id,
+        technician_id,service_bay_id,start_time,end_time,status,created_at
+        FROM appointments WHERE id=$1`, id).Scan(
+		&result.ID, &result.CustomerID, &result.VehicleID, &result.DealershipID, &result.ServiceTypeID,
+		&result.TechnicianID, &result.ServiceBayID, &result.StartTime, &result.EndTime, &result.Status, &result.CreatedAt)
+	if err != nil {
+		return appointments.Appointment{}, databaseError(referenceError(err, appointments.ErrAppointmentNotFound, "get appointment"))
+	}
+	result.StartTime = result.StartTime.UTC()
+	result.EndTime = result.EndTime.UTC()
+	result.CreatedAt = result.CreatedAt.UTC()
+	return result, nil
 }

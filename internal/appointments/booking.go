@@ -10,6 +10,8 @@ import (
 )
 
 var (
+	ErrAppointmentNotFound     = errors.New("appointment not found")
+	ErrUnavailable             = errors.New("required dependency unavailable")
 	ErrInvalidRequest          = errors.New("invalid booking request")
 	ErrCustomerNotFound        = errors.New("customer not found")
 	ErrVehicleNotFound         = errors.New("vehicle not found")
@@ -51,16 +53,17 @@ type Appointment struct {
 	CreatedAt     time.Time
 }
 
-type Creator interface {
+type Repository interface {
+	Get(context.Context, int64) (Appointment, error)
 	Create(context.Context, BookingRequest) (Appointment, error)
 }
 
 type Service struct {
-	creator Creator
+	repository Repository
 }
 
-func NewService(creator Creator) *Service {
-	return &Service{creator: creator}
+func NewService(repository Repository) *Service {
+	return &Service{repository: repository}
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (Appointment, error) {
@@ -68,7 +71,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Appointment, e
 	if err != nil {
 		return Appointment{}, err
 	}
-	return s.creator.Create(ctx, request)
+	return s.repository.Create(ctx, request)
 }
 
 // time.Parse accepts a few non-RFC forms (including comma fractions and
@@ -95,4 +98,11 @@ func (input CreateInput) Validate(now time.Time) (BookingRequest, error) {
 		DealershipID: input.DealershipID, ServiceTypeID: input.ServiceTypeID,
 		StartTime: start,
 	}, nil
+}
+
+func (s *Service) Get(ctx context.Context, id int64) (Appointment, error) {
+	if id <= 0 {
+		return Appointment{}, ErrInvalidRequest
+	}
+	return s.repository.Get(ctx, id)
 }

@@ -10,7 +10,7 @@ Deliver the Unified Service Scheduler for Scenario A: a Go and PostgreSQL backen
 
 | Area | Status | Evidence or remaining work |
 | --- | --- | --- |
-| Project structure | In progress | Environment, database, booking, and integration-test packages exist; HTTP appointment handlers are next. |
+| Project structure | In progress | Environment, database, booking, HTTP handlers, and integration tests are implemented. |
 | Technology and concurrency choices | Selected | Recorded in [My decision](#my-decision). |
 | System design | Design recorded | [Architecture](architecture.md) covers confirmed decisions, schema boundaries, and pinned versions. |
 | Domain assumptions | Confirmed | Time, working hours, and customer/vehicle validation are documented in [Architecture](architecture.md#assumptions). |
@@ -18,8 +18,8 @@ Deliver the Unified Service Scheduler for Scenario A: a Go and PostgreSQL backen
 | Application environment | Complete | The Go service, PostgreSQL connection pool, health route, Compose services, persistent volume, and Make targets run successfully. |
 | Schema and seed data | Complete | Versioned migrations, relational constraints, lookup indexes, deterministic catalog data, and schema verification are implemented. |
 | Booking transaction | Complete | Validation, dealership locking, allocation, atomic commit, and rollback pass service-level tests. |
-| Appointment HTTP API | Not implemented | Creation, retrieval, and error mapping begin in Step 5. |
-| Verification | Booking tests pass | Unit tests, isolated PostgreSQL integration tests, race detection, build, and vet pass. Remaining business/concurrency cases and HTTP tests follow. |
+| Appointment HTTP API | Complete | Creation returns `201` and `Location`; retrieval returns the same persisted representation; errors carry request IDs. |
+| Verification | Booking and HTTP tests pass | Unit tests, PostgreSQL/HTTP integration tests, race detection, build, vet, cURL demonstration, and database outage/recovery checks pass. Remaining business/concurrency cases follow. |
 | Video and submission | Not completed | Recording and final repository checks follow implementation. |
 
 Completed checkboxes record finished work. Unchecked items remain planned and do not imply implementation or successful verification.
@@ -99,15 +99,15 @@ Catalog administration, authentication, cancellation, rescheduling, temporary ho
 
 ### 5. Expose two HTTP endpoints - 1 hour
 
-- [ ] Implement appointment creation and retrieval.
-- [ ] Return `201` with `Location` for creation and `200` for retrieval; map `400/404/409/503/500` outcomes to the documented error envelope.
-- [ ] Add cURL examples with seeded IDs and a configurable future start time.
+- [x] Implement appointment creation and retrieval.
+- [x] Return `201` with `Location` for creation and `200` for retrieval; map `400/404/409/503/500` outcomes to the documented error envelope.
+- [x] Add cURL examples with seeded IDs and a configurable future start time.
 
-**Completion evidence:** The client can create and retrieve the same complete appointment.
+**Completion evidence:** `make demo` creates and retrieves identical appointment JSON using the returned `Location`. HTTP tests cover invalid requests, missing records, conflicts, and safe internal errors. Live database stop/restart checks verify `503` on both endpoints and successful retrieval after recovery.
 
 ### 6. Test business rules - 90 minutes
 
-Initial service-level coverage was added with Step 4; this phase reviews the full matrix and fills remaining cases.
+Initial service and HTTP coverage was added with Steps 4-5; this phase reviews the full matrix and fills remaining cases.
 
 - [ ] Verify persisted associations on successful booking.
 - [ ] Reject technician and bay overlaps, including partial overlap and containment.
@@ -131,6 +131,8 @@ Step 4 already verifies six contending sessions, failed-commit rollback, and loc
 **Completion evidence:** Tests use independent PostgreSQL connections and inspect committed data. A one-connection pool is insufficient to verify the locking protocol.
 
 ### 8. Add basic operational behavior - 30 minutes
+
+Step 5 introduced request IDs, outcome/duration logs, bounded reads and database operations, and safe dependency errors. This phase completes operational review and remaining diagnostics.
 
 - [ ] Add request IDs and structured outcome/duration logs without customer contact data.
 - [ ] Bound request and database waits with timeouts.

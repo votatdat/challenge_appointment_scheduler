@@ -1,8 +1,8 @@
 # API contract
 
-**Status:** Contract confirmed. The booking service and transaction are implemented; appointment HTTP endpoints, error mapping, and executable client examples are pending.
+**Status:** Both appointment endpoints, persisted retrieval, error mapping, and a runnable cURL demonstration are implemented and verified.
 
-Request bodies and responses use JSON (`Content-Type: application/json`). Timestamps use RFC 3339 with a timezone offset, including `Z` for UTC. All returned appointment timestamps are normalized to UTC.
+Request bodies and responses use JSON (`Content-Type: application/json`). POST requires one JSON object of at most 64 KiB. Unknown fields, extra JSON values, invalid field types, and unsupported or missing Content-Type return `400 INVALID_REQUEST`. Timestamps use RFC 3339 with a timezone offset, including `Z` for UTC. All returned appointment timestamps are normalized to UTC.
 
 Catalog IDs are positive integers referencing seeded records. Appointment IDs are positive integers assigned by the server when appointments are created.
 
@@ -74,13 +74,13 @@ All API errors use this envelope:
 }
 ```
 
-`code`, `message`, and `request_id` are required strings. Codes identify the error category; messages explain it to the reader. The same request ID appears in structured server logs. Internal SQL, database, stack-trace, and infrastructure details are never returned to clients.
+`code`, `message`, and `request_id` are required strings. Codes identify the error category; messages explain it to the reader. A fresh server-generated ID is returned in `X-Request-ID` for every request and appears in structured server logs; incoming request IDs are not reused. Internal SQL, database, stack-trace, and infrastructure details are never returned to clients.
 
 ## Error behavior
 
 | HTTP status | Error code | Condition |
 | --- | --- | --- |
-| 400 | `INVALID_REQUEST` | Malformed JSON, missing or invalid fields, wrong field types, non-positive IDs, invalid timestamps, missing timezone offsets, or a start time that is not in the future. |
+| 400 | `INVALID_REQUEST` | Unknown fields, multiple JSON values, oversized bodies, invalid Content-Type, malformed JSON, missing or invalid fields, wrong field types, non-positive IDs, invalid timestamps, missing timezone offsets, or a start time that is not in the future. |
 | 400 | `CUSTOMER_VEHICLE_MISMATCH` | The existing vehicle does not belong to the supplied customer. |
 | 404 | `CUSTOMER_NOT_FOUND` | Referenced customer does not exist. |
 | 404 | `VEHICLE_NOT_FOUND` | Referenced vehicle does not exist. |
@@ -97,4 +97,26 @@ The 409 response does not expose which resource prevented allocation. Waiting fo
 
 Intervals use `[start, end)`, allowing back-to-back bookings. Resource availability accounts for existing appointments, not shifts, opening hours, breaks, holidays, or maintenance schedules. Customer/vehicle association checks do not authenticate the caller or verify identity. See [Architecture assumptions](../docs/architecture.md#assumptions).
 
-The API excludes availability browsing, catalog administration, cancellation, rescheduling, holds, authentication, and idempotency guarantees. Runnable cURL examples will be added with implementation.
+The API excludes availability browsing, catalog administration, cancellation, rescheduling, holds, authentication, and idempotency guarantees.
+
+Unknown routes return `404 ROUTE_NOT_FOUND`. Unsupported methods return `405 METHOD_NOT_ALLOWED` with `Allow`. Both use the same JSON error envelope. The operational `/healthz` route keeps its separate database-status representation.
+
+## cURL demonstration
+
+From the repository root:
+
+```bash
+make db-init
+make up
+make demo
+```
+
+`make demo` runs [scripts/demo.sh](../scripts/demo.sh) with customer, vehicle, dealership, and service IDs all set to `1`. It defaults to one day ahead in UTC, creates an appointment, retrieves the returned `Location`, and compares the two representations. The script uses cURL and standard shell tools; no JSON parser needs to be installed.
+
+Choose another future instant or server as needed:
+
+```bash
+START_TIME="$(date -u -d '+2 days' '+%Y-%m-%dT%H:%M:%SZ')" BASE_URL=http://localhost:8080 make demo
+```
+
+Each successful run adds one appointment. A capacity conflict is reported without retrying or deleting data.

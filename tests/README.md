@@ -1,6 +1,6 @@
 # Test plan
 
-Status: input-validation unit tests and PostgreSQL booking integration tests are implemented. HTTP tests and the remaining business/concurrency cases are planned.
+Status: input validation, HTTP contract tests, and PostgreSQL booking/retrieval integration tests are implemented. Remaining business and concurrency cases are planned.
 
 ## Run current tests
 
@@ -13,13 +13,15 @@ The integration target starts PostgreSQL and uses `TEST_DATABASE_URL` or the loc
 
 Verified coverage includes persisted associations, alternative resources, each resource's partial overlaps, technician containment, adjacent bookings, strict timestamp validation, service duration, invalid references, qualification and dealership filtering, failed commit rollback, and cancellation while waiting for the lock. The contention test waits until six database sessions are blocked, then checks one committed booking and five capacity conflicts.
 
-Remaining review includes HTTP contracts, explicit bay-containment and precision-boundary cases, simultaneous successful independent pairs, and cross-dealership concurrency. The checklists below remain the full target coverage.
+HTTP coverage verifies creation and identical retrieval, UTC fields, `Location`, malformed and oversized bodies, invalid IDs and media types, missing references, capacity conflicts, safe error envelopes, and request-log correlation. A real database commit failure returns `500` without a persisted row. Database error classification is unit-tested; a live PostgreSQL stop/restart rehearsal verified both endpoints return `503` and recover afterward.
+
+Remaining review includes explicit bay-containment and precision-boundary cases, simultaneous successful independent pairs, and cross-dealership concurrency. The checklists below remain the full target coverage.
 
 | Directory | Purpose |
 | --- | --- |
 | `../internal/**/*_test.go` | Go unit tests alongside duration, interval, and qualification logic. |
-| `integration/` | Persistence, atomicity, resource allocation, and concurrency against real PostgreSQL. |
-| `e2e/` | HTTP requests, response contracts, and complete booking workflows. |
+| `integration/` | Persistence, atomicity, allocation, HTTP booking/retrieval, and concurrency against real PostgreSQL. |
+| `e2e/` | Reserved for additional process-level workflows if needed; current HTTP tests use the integration setup. |
 | `fixtures/` | Deterministic setup data shared where appropriate. |
 
 ## Business cases
@@ -48,7 +50,7 @@ Remaining review includes HTTP contracts, explicit bay-containment and precision
 - Known PostgreSQL unavailability returns `503 SERVICE_UNAVAILABLE`; unexpected failures return `500 INTERNAL_ERROR`.
 - Each error contains `code`, `message`, and `request_id` inside `error`, matches the request ID in logs, and exposes no internal database details.
 
-The [API contract](../api/README.md) defines the full response shape and status mapping. These checks remain unimplemented.
+The [API contract](../api/README.md) defines the full response shape and status mapping. These contracts are covered by handler unit tests and HTTP/PostgreSQL integration tests; live outage recovery was also rehearsed.
 
 ## Concurrency cases
 
@@ -56,4 +58,4 @@ Coordinate independent requests so they compete for the same interval. With exac
 
 Also cover a shared technician with different bays, a shared bay with different technicians, and independent resource pairs that can both succeed. Repeat relevant cases across independent PostgreSQL connections; mocked repositories cannot validate the database's concurrency behavior.
 
-Performance experiments are outside the current delivery scope. Current service-level test results are recorded above; HTTP and remaining concurrency coverage will be added with the later steps.
+Performance experiments are outside the current delivery scope. Current service-level test results are recorded above; remaining business and concurrency coverage will be added with the later steps.

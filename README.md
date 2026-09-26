@@ -4,7 +4,7 @@ A Go backend for booking vehicle service appointments at a dealership. A booking
 
 This project is the backend submission for Scenario A of the Keyloop Technical Assessment.
 
-**Status:** Environment, schema, and booking transaction implemented. The booking service validates requests, allocates resources under a dealership lock, and persists confirmed appointments. Unit and PostgreSQL integration tests pass. The running HTTP server currently exposes only `GET /healthz`; appointment endpoints are next.
+**Status:** Appointment creation and retrieval are implemented with PostgreSQL persistence, resource locking, JSON errors, and request IDs. Unit and HTTP/PostgreSQL integration tests pass. Remaining delivery work covers the full test matrix, operational review, documentation rehearsal, and video.
 
 ## Scope
 
@@ -17,9 +17,9 @@ The selected API consists of:
 | POST | `/appointments` | Create a confirmed appointment; `201 Created` with `Location`. |
 | GET | `/appointments/{id}` | Retrieve the persisted appointment; `200 OK`. |
 
-The [API contract](api/README.md) is confirmed: positive integer IDs, RFC 3339 input timestamps, UTC responses, and consistent errors with request IDs. Endpoint implementation is pending.
+The [API contract](api/README.md) is confirmed: positive integer IDs, RFC 3339 input timestamps, UTC responses, and consistent errors with request IDs. Both endpoints are implemented.
 
-Catalog data is seeded with deterministic IDs and resource combinations. A cURL client will demonstrate the workflow. Authentication, catalog administration, cancellation, rescheduling, temporary holds, and a separate availability endpoint are outside scope.
+Catalog data is seeded with deterministic IDs and resource combinations. `make demo` demonstrates creation and retrieval using cURL. Authentication, catalog administration, cancellation, rescheduling, temporary holds, and a separate availability endpoint are outside scope.
 
 Start times must be in the future, include a timezone offset, and are normalized to UTC. The service type determines duration, and `[start, end)` intervals allow back-to-back appointments. Resources are available unless booked, without working-hours or maintenance schedules. Booking validates the seeded customer/vehicle relationship but does not verify customer identity. See [Architecture assumptions](docs/architecture.md#assumptions).
 
@@ -36,7 +36,7 @@ See [Architecture](docs/architecture.md) for component responsibilities, data fl
 
 ## Build, run, and test
 
-Prerequisites are Go 1.27.1, Docker with Compose, GNU Make, and cURL.
+Prerequisites are Go 1.27.1, Docker with Compose, GNU Make, cURL, and a POSIX shell with GNU coreutils (for example, WSL).
 
 Initialize the database and start the complete local environment:
 
@@ -52,6 +52,14 @@ A healthy service returns:
 ```json
 {"database":"up","status":"ok"}
 ```
+
+Create and retrieve an appointment with seeded IDs and a start time one day ahead:
+
+```bash
+make demo
+```
+
+The script expects `201`, follows the `Location` header, expects `200`, and checks that both JSON representations match. Each run creates a persisted appointment. Override `START_TIME` with a future RFC 3339 timestamp or `BASE_URL` for a different server. If a repeated run fills the available resources, choose a different start time. See [API usage](api/README.md#curl-demonstration).
 
 Database operations are available separately:
 
@@ -95,10 +103,10 @@ Use `make help` to list all available commands. `make test-integration` starts P
 |   `-- plan.md               # Delivery progress and decisions
 |-- cmd/api/                  # Server startup and graceful shutdown
 |-- internal/
-|   |-- httpapi/              # Health route; appointment routes planned
+|   |-- httpapi/              # Health and appointment HTTP handlers
 |   |-- appointments/         # Booking rules and allocation
 |   |-- catalog/              # Catalog models and qualifications
-|   |-- postgres/             # Connection pool and booking transaction
+|   |-- postgres/             # Booking transaction and retrieval
 |   `-- config/               # Validated environment configuration
 |-- database/
 |   |-- migrations/           # Versioned SQL schema changes
@@ -106,16 +114,16 @@ Use `make help` to list all available commands. `make test-integration` starts P
 |   `-- verify.sql            # Schema and seed verification
 |-- api/                      # API contract documentation
 |-- tests/
-|   |-- integration/          # PostgreSQL and concurrency tests
+|   |-- integration/          # PostgreSQL, HTTP, and concurrency tests
 |   |-- e2e/                  # HTTP booking workflows
 |   `-- fixtures/             # Deterministic test data
 `-- scripts/                  # Setup and demonstration helpers
 ```
 
-The tree includes the implemented booking service, PostgreSQL transaction, and integration tests, plus planned catalog and HTTP test packages. Planned directories will be created with their first real files. Go unit tests will live beside the corresponding implementation as `*_test.go` files.
+The tree includes the implemented booking service, PostgreSQL transaction, and integration tests, plus planned catalog and additional test packages. Planned directories will be created with their first real files. Go unit tests will live beside the corresponding implementation as `*_test.go` files.
 
 ## AI Collaboration Narrative
 
 I used AI to analyze requirements and compare designs, then selected a small Go/PostgreSQL backend focused on booking correctness. I reviewed the proposals against the brief and narrowed the scope to preserve time for tests, documentation, and the demonstration. Design review clarified customer associations, atomic resource allocation, and the conditions needed for meaningful concurrency tests.
 
-Verification now includes unit tests and real PostgreSQL tests for persisted associations, overlapping intervals, alternative resources, rollback, and competing bookings. Review refined strict timestamp validation and cancellation cleanup. Six sessions competing for one resource pair produced one committed booking and five capacity conflicts; HTTP verification remains pending.
+Verification now includes unit tests and real PostgreSQL tests for persisted associations, overlapping intervals, alternative resources, rollback, and competing bookings. Review refined strict timestamp validation and cancellation cleanup. Six sessions competing for one resource pair produced one committed booking and five capacity conflicts. HTTP tests and a cURL rehearsal verify creation/retrieval, safe errors, and recovery after database unavailability.

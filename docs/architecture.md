@@ -4,7 +4,7 @@
 
 This document describes the selected design for the Unified Service Scheduler. It covers the architecture, component responsibilities, data flow, technology choices, observability strategy, and GenAI use during design.
 
-The design choices below are recorded in [My decision](plan.md#my-decision). Domain assumptions and the [API contract](../api/README.md) are confirmed. The local environment, schema, demonstration data, and booking transaction are implemented and verified. Booking validation and PostgreSQL integration tests pass. HTTP creation, retrieval, and response mapping remain planned.
+The design choices below are recorded in [My decision](plan.md#my-decision). Domain assumptions and the [API contract](../api/README.md) are confirmed. The local environment, schema, demonstration data, and booking transaction are implemented and verified. Booking validation, HTTP contracts, and PostgreSQL integration tests pass. Both appointment endpoints and the cURL workflow are implemented.
 
 ## Requirements
 
@@ -19,32 +19,32 @@ flowchart LR
     Client["cURL client"] --> HTTP["HTTP API: net/http + ServeMux"]
     subgraph GoApplication["One Go application"]
         HTTP --> Health["Database health check"]
-        HTTP -. planned .-> Booking["Booking workflow"]
-        HTTP -. planned .-> Retrieval["Appointment retrieval"]
+        HTTP --> Booking["Booking workflow"]
+        HTTP --> Retrieval["Appointment retrieval"]
         Health --> Store["PostgreSQL access: pgx/v5 + pgxpool"]
         Booking --> Store
-        Retrieval -. planned .-> Store
-        HTTP --> Logs["Structured lifecycle logs"]
+        Retrieval --> Store
+        HTTP --> Logs["Structured request and lifecycle logs"]
     end
     Store --> DB[(PostgreSQL)]
     Migrations["golang-migrate + SQL files"] --> DB
 ```
 
-Solid paths are implemented and verified. Dotted application paths show the next planned behavior.
+The paths shown above are implemented and verified.
 
 ## Components
 
 | Component | Location | Status and responsibility |
 | --- | --- | --- |
 | Application entry point | `cmd/api/` | Implemented: load configuration, connect dependencies, start the HTTP server, and shut down cleanly. |
-| HTTP API | `internal/httpapi/` | Health route implemented; appointment routing, validation, request IDs, and response mapping are planned. |
+| HTTP API | `internal/httpapi/` | Implemented: health and appointment routes, bounded JSON decoding, request IDs, response mapping, and request logs. |
 | Booking workflow | `internal/appointments/` | Implemented: validate IDs and RFC 3339 timestamps, normalize UTC, define results and domain errors, and call the atomic booking repository. |
 | Catalog model | `internal/catalog/` | Planned: represent customers, vehicles, dealerships, service types, technicians, qualifications, and bays. |
-| PostgreSQL access | `internal/postgres/` | Implemented: connection pool and booking transaction, including catalog checks, duration calculation, resource selection, insertion, commit, and rollback. |
+| PostgreSQL access | `internal/postgres/` | Implemented: connection pool and booking transaction, including catalog checks, duration calculation, resource selection, insertion, commit, rollback, and appointment retrieval. |
 | Configuration | `internal/config/` | Implemented: load and validate connection, timeout, pool, and server settings. |
 | Schema and seed data | `database/` | Implemented: apply a reversible schema migration, load deterministic demonstration data, and verify constraints and indexes. |
 
-These are packages within one application, not independent services. The booking service depends on a narrow `Creator` interface. PostgreSQL owns the entire allocation transaction so each query uses the same connection; booking code has no HTTP dependency.
+These are packages within one application, not independent services. The booking service depends on a `Repository` interface with creation and retrieval. PostgreSQL owns the entire allocation transaction so each query uses the same connection; booking code has no HTTP dependency.
 
 ## Selected technologies and rationale
 
@@ -62,9 +62,9 @@ SQL keeps overlap checks and the locking protocol visible for review.
 
 ## Booking data flow
 
-The service and transaction below are implemented; HTTP request handling and response mapping are Step 5 work.
+The HTTP handlers, booking service, and transaction below are implemented.
 
-1. The booking service receives input from its caller, eventually `POST /appointments`, validates positive integer IDs and an RFC 3339 start time with a timezone offset, normalizes it to UTC, and requires a future start time.
+1. `POST /appointments` validates its JSON body and passes input to the booking service, which validates positive integer IDs and an RFC 3339 start time with a timezone offset, normalizes it to UTC, and requires a future start time.
 2. Begin a `READ COMMITTED` transaction through a pooled connection.
 3. Lock the requested dealership row using `SELECT ... FOR UPDATE`. A missing dealership produces a missing-record outcome.
 4. After obtaining the lock, validate catalog references and the vehicle's association with the supplied customer. Read the selected service duration and derive the appointment end time.
@@ -74,7 +74,7 @@ The service and transaction below are implemented; HTTP request handling and res
 
 All statements use the same `READ COMMITTED` transaction. A five-second context deadline bounds acquisition, lock waits, queries, and commit. Deferred rollback uses a separate two-second context so request cancellation does not prevent cleanup. Start time is rechecked after the dealership lock is acquired.
 
-Input timestamps are normalized to UTC and truncated to PostgreSQL microsecond precision before validation and storage. End time is derived in SQL from the service duration. Returned times are UTC. Missing catalog rows, mismatched ownership, and no capacity have separate domain errors; unexpected SQL and commit errors retain their causes for the future HTTP error mapper.
+Input timestamps are normalized to UTC and truncated to PostgreSQL microsecond precision before validation and storage. End time is derived in SQL from the service duration. Returned times are UTC. Missing catalog rows, mismatched ownership, and no capacity have separate domain errors; unexpected SQL and commit errors retain their causes. The HTTP layer returns fixed public messages; connection failures and database wait deadlines map to `503`, while unexpected SQL or constraint failures map to `500`.
 
 `GET /appointments/{id}` returns `200 OK` with the same persisted appointment representation, without allocating resources. All returned timestamps are UTC RFC 3339 strings. See the confirmed [API contract](../api/README.md) for fields and error codes.
 
@@ -141,13 +141,15 @@ Customers and vehicles are seeded reference data. Each seeded vehicle is associa
 
 The environment currently provides JSON lifecycle logs, bounded startup and health-check database pings, HTTP read-header and shutdown timeouts, a database-backed health route, and graceful signal handling.
 
-The appointment API will add request IDs, operation outcomes, duration, and appointment IDs when available. It will avoid customer contact data and complete request bodies. Errors will contain an `error` object with `code`, `message`, and `request_id`; invalid input maps to `400`, missing records to `404`, capacity conflicts to `409`, known dependency unavailability to `503`, and unexpected failures to `500`.
+The appointment API generates request IDs and logs route templates, method, status, error code, and duration without request bodies, URL queries, or customer contact data. The same ID appears in `X-Request-ID` and the JSON error envelope. Invalid input maps to `400`, missing records to `404`, capacity conflicts to `409`, known dependency unavailability to `503`, and unexpected failures to `500`.
 
-The planned metrics strategy counts booking attempts, successes, capacity conflicts, and unexpected failures and measures request and transaction duration. Logs provide initial diagnostic evidence; no metrics exporter or dashboard is in scope. Request IDs will provide correlation inside this single service, and distributed tracing is not planned.
+POST bodies are limited to 64 KiB and one JSON object with documented fields. The HTTP server bounds body reads to ten seconds, response writes to fifteen seconds, and idle connections to sixty seconds. Creation and retrieval database operations each have a five-second deadline. Appointment IDs in outcome logs and further failure-path review remain part of the operational review.
+
+The planned metrics strategy counts booking attempts, successes, capacity conflicts, and unexpected failures and measures request and transaction duration. Logs provide initial diagnostic evidence; no metrics exporter or dashboard is in scope. Request IDs provide correlation inside this single service, and distributed tracing is not planned.
 
 ## Verification strategy
 
-Current unit and PostgreSQL integration tests cover request validation, qualifications, dealership matching, UTC normalization, service-derived duration, overlap and adjacent intervals, customer/vehicle matching, alternate resources, and persisted associations. A deferred trigger injects a commit failure to verify rollback; a held dealership lock verifies cancellation. Each database test applies the migration in a temporary schema and cleans up that schema.
+Current unit and PostgreSQL integration tests cover request validation, qualifications, dealership matching, UTC normalization, service-derived duration, overlap and adjacent intervals, customer/vehicle matching, alternate resources, and persisted associations. A deferred trigger injects a commit failure to verify rollback; a held dealership lock verifies cancellation. Each database test applies the migration in a temporary schema and cleans up that schema. HTTP integration tests verify `201`/`Location`, identical retrieval, UTC responses, invalid and missing references, capacity conflicts, and failed-commit `500` responses. A live database stop/restart rehearsal verified `503` for both endpoints and successful retrieval after recovery.
 
 The concurrency test must use multiple database connections and verify committed appointments as well as responses. A clean-setup rehearsal will verify the documented commands and persistence across restart. See the [test plan](../tests/README.md).
 
@@ -155,4 +157,4 @@ The concurrency test must use multiple database connections and verify committed
 
 AI assisted with requirements analysis, scope comparison, identifying booking invariants, and drafting component boundaries. I selected the technologies and transaction strategy and limited the scope to a complete submission within the available time.
 
-Review clarified that both resources must be allocated atomically and that availability checks must follow the dealership lock. The design records its contention and response-loss limitations. Environment, schema, and booking transaction behavior are verified. Review strengthened timestamp parsing and cancellation cleanup; HTTP integration and the remaining test-plan cases are still pending.
+Review clarified that both resources must be allocated atomically and that availability checks must follow the dealership lock. The design records its contention and response-loss limitations. Environment, schema, and booking transaction behavior are verified. Review strengthened timestamp parsing and cancellation cleanup; HTTP integration also passes; the remaining interval and concurrency cases are tracked in the test plan.

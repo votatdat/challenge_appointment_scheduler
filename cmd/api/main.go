@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/votatdat/challenge_appointment_scheduler/internal/appointments"
 	"github.com/votatdat/challenge_appointment_scheduler/internal/config"
 	"github.com/votatdat/challenge_appointment_scheduler/internal/httpapi"
 	"github.com/votatdat/challenge_appointment_scheduler/internal/postgres"
@@ -39,10 +41,14 @@ func run(logger *slog.Logger) error {
 	}
 	defer pool.Close()
 
+	service := appointments.NewService(postgres.NewAppointmentStore(pool))
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress,
-		Handler:           httpapi.NewHandler(pool, cfg.DatabasePingTimeout),
+		Handler:           httpapi.NewHandler(pool, cfg.DatabasePingTimeout, service, logger),
 		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	serverErrors := make(chan error, 1)
