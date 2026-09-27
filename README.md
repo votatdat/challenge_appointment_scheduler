@@ -4,7 +4,7 @@ A Go backend for booking vehicle service appointments at a dealership. A booking
 
 This project is the backend submission for Scenario A of the Keyloop Technical Assessment.
 
-**Status:** Appointment creation and retrieval are implemented with PostgreSQL persistence, resource locking, JSON errors, and request IDs. Unit and HTTP/PostgreSQL integration tests pass. Business-rule, concurrency, and rollback coverage are complete; remaining delivery work includes operational review, documentation rehearsal, and video.
+**Status:** Appointment creation and retrieval are implemented with PostgreSQL persistence, resource locking, JSON errors, and request IDs. Unit and HTTP/PostgreSQL integration tests pass. Business-rule, concurrency, rollback, and operational checks are complete; remaining delivery work includes final documentation, clean-setup rehearsal, and video.
 
 ## Scope
 
@@ -93,6 +93,10 @@ make check
 
 Use `make help` to list all available commands. `make test-integration` starts PostgreSQL and uses `TEST_DATABASE_URL` when set, otherwise `DATABASE_URL` from `.env`. Each test applies the migration in a unique schema and removes that schema afterward, preserving demonstration data. The database role must be allowed to create schemas. See [test coverage and remaining work](tests/README.md).
 
+## Operational behavior
+
+Each request receives an `X-Request-ID` correlated with a JSON outcome log. Successful creation and retrieval also log `appointment_id`; request bodies, URL queries, and customer contact data are omitted. Database failures return safe `503` responses, and request/database waits have deadlines. Inspect logs with `docker compose logs --no-color app`. See [operational limits](docs/architecture.md#observability-and-failure-handling) for timeouts and configuration.
+
 ## Project structure
 
 ```text
@@ -126,4 +130,4 @@ The tree includes the implemented booking service, PostgreSQL transaction, and i
 
 I used AI to analyze requirements and compare designs, then selected a small Go/PostgreSQL backend focused on booking correctness. I reviewed the proposals against the brief and narrowed the scope to preserve time for tests, documentation, and the demonstration. Design review clarified customer associations, atomic resource allocation, and the conditions needed for meaningful concurrency tests.
 
-Verification now includes unit tests and real PostgreSQL tests for persisted associations, overlapping intervals, alternative resources, rollback, and competing bookings. Review refined strict timestamp validation and cancellation cleanup, then added independent technician/bay checks for containment, adjacency, and microsecond boundaries. Coordinated HTTP tests verify one or two successes according to available capacity, dealership independence, and recovery of a queued booking after a failed commit. HTTP tests and a cURL rehearsal verify creation/retrieval, safe errors, and recovery after database unavailability.
+Verification uses unit tests and real PostgreSQL/HTTP tests for persisted bookings, interval boundaries, concurrent allocation, and rollback. Review refined timestamp parsing and cancellation cleanup, and found that background connection attempts needed their own deadline; a stalled-handshake regression now covers that gap. Race checks, repeated contention tests, and live creation/retrieval, slow-request, and outage rehearsals provide evidence for correctness and recovery.

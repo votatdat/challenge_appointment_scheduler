@@ -1,6 +1,6 @@
 # Test plan
 
-Status: business-rule, concurrency, and rollback coverage are complete. Unit and PostgreSQL/HTTP integration suites pass with race detection; build and static checks also pass. The new concurrency cases also pass five repeated runs with race detection.
+Status: business-rule, concurrency, rollback, and operational coverage are complete. Unit and PostgreSQL/HTTP integration suites pass with race detection; build and static checks also pass. The new concurrency cases also pass five repeated runs with race detection.
 
 ## Run current tests
 
@@ -16,7 +16,7 @@ Verified coverage includes persisted associations, independent resource alternat
 
 HTTP coverage verifies creation and identical retrieval, UTC fields, `Location`, malformed and oversized bodies, invalid IDs and media types, missing references, capacity conflicts, safe error envelopes, and request-log correlation. A real database commit failure returns `500` without a persisted row. Database error classification is unit-tested; a live PostgreSQL stop/restart rehearsal verified both endpoints return `503` and recover afterward.
 
-Concurrent capacity checks, dealership independence, and queued recovery after a failed commit are covered below. Operational review and clean-setup rehearsal remain in the [delivery plan](../docs/plan.md).
+Concurrent capacity checks, dealership independence, and queued recovery after a failed commit are covered below. Final documentation and clean-setup rehearsal remain in the [delivery plan](../docs/plan.md).
 
 | Directory | Purpose |
 | --- | --- |
@@ -69,3 +69,16 @@ The [API contract](../api/README.md) defines the full response shape and status 
 Existing booking tests also verify cancellation while waiting for a lock and successful booking after cancellation. Tests cancel and join concurrent workers before cleanup, and temporary schemas are removed after each test.
 
 Performance experiments are outside the delivery scope. These tests verify the supported booking protocol under coordinated contention; they are not a throughput benchmark.
+
+## Operational cases
+
+| Check | Verification |
+| --- | --- |
+| Safe request logs | HTTP unit tests verify request/response correlation, success appointment IDs, error codes, duration, severity, and exclusion of request bodies, query values, and raw error details. |
+| Bounded health checks | A stalled pinger reaches its configured deadline and produces a safe health response and failure log. |
+| Bounded connection establishment | A TCP peer accepts but never answers the PostgreSQL handshake. The pool returns within the test's deadline, including cleanup of its background connection attempt. |
+| Database operation deadlines | [Operational integration tests](integration/operations_test.go) hold a dealership lock, block appointment reads, or exhaust the connection pool. Each request reaches its five-second deadline, returns a correlated `503`, leaves data unchanged, and succeeds after the obstruction is released. |
+| Slow requests | A live container rehearsal confirmed incomplete headers terminate at five seconds and an incomplete JSON body returns `400` at ten seconds. |
+| Database outage/recovery | A live PostgreSQL stop/restart rehearsal verified safe `503` responses on both appointment routes and health, correlated error logs, successful recovery, and unchanged demonstration appointments. |
+
+The first four checks run in the automated suites. Slow-request and database stop/restart checks were performed against the running application; ordinary integration tests do not stop the shared database.

@@ -105,6 +105,16 @@ func TestErrorMappingAndRequestLogs(t *testing.T) {
 				if err := json.Unmarshal(logs.Bytes(), &log); err != nil {
 					t.Fatal(err)
 				}
+				wantLevel := "INFO"
+				if tc.status >= 500 {
+					wantLevel = "ERROR"
+				}
+				if log["level"] != wantLevel || log["method"] != method || log["appointment_id"] != nil {
+					t.Fatalf("wrong error diagnostics: %s", logs)
+				}
+				if duration, ok := log["duration_ms"].(float64); !ok || duration < 0 {
+					t.Fatalf("missing request duration: %s", logs)
+				}
 				if log["request_id"] != rec.Header().Get("X-Request-ID") || log["code"] != tc.code ||
 					log["status"] != float64(tc.status) || strings.Contains(logs.String(), "secret") {
 					t.Fatalf("unexpected log: %s", logs)
@@ -187,5 +197,71 @@ func TestCreateAndGetHaveSameRepresentation(t *testing.T) {
 		if !strings.HasSuffix(result[key].(string), "Z") {
 			t.Fatalf("%s is not UTC", key)
 		}
+	}
+}
+
+func TestSuccessfulRequestLogs(t *testing.T) {
+	for _, method := range []string{"POST", "GET"} {
+		t.Run(method, func(t *testing.T) {
+			logs := &bytes.Buffer{}
+			service := &stubService{result: appointments.Appointment{ID: 42}}
+			path, route, status := "/appointments", "/appointments", 201
+			if method == "GET" {
+				path, route, status = "/appointments/42", "/appointments/{id}", 200
+			}
+			rec := request(handlerFor(service, logs), method, path+"?email=private@example.test", `{"start_time":"private-body-value"}`, "application/json")
+			var record map[string]any
+			if err := json.Unmarshal(logs.Bytes(), &record); err != nil {
+				t.Fatal(err)
+			}
+			if rec.Code != status || record["status"] != float64(status) || record["appointment_id"] != float64(42) ||
+				record["request_id"] != rec.Header().Get("X-Request-ID") || record["method"] != method ||
+				record["route"] != route || record["level"] != "INFO" || record["code"] != "" {
+				t.Fatalf("wrong success diagnostics: %s", logs)
+			}
+			if duration, ok := record["duration_ms"].(float64); !ok || duration < 0 {
+				t.Fatalf("missing duration: %s", logs)
+			}
+			for _, forbidden := range []string{"private", "untrusted-client-value", "/appointments/42", "customer_id", "vehicle_id"} {
+				if strings.Contains(logs.String(), forbidden) {
+					t.Fatalf("request data leaked: %s", logs)
+				}
+			}
+		})
+	}
+}
+
+type pingFunc func(context.Context) error
+
+func (f pingFunc) Ping(ctx context.Context) error { return f(ctx) }
+
+func TestHealthDeadlineAndSafeLog(t *testing.T) {
+	logs := &bytes.Buffer{}
+	var pingErr error
+	database := pingFunc(func(ctx context.Context) error {
+		<-ctx.Done()
+		pingErr = ctx.Err()
+		return errors.New("secret database connection details")
+	})
+	handler := NewHandler(database, 20*time.Millisecond, &stubService{}, slog.New(slog.NewJSONHandler(logs, nil)))
+	start := time.Now()
+	rec := request(handler, "GET", "/healthz", "", "")
+	if !errors.Is(pingErr, context.DeadlineExceeded) || time.Since(start) > time.Second || rec.Code != 503 {
+		t.Fatalf("health deadline failed: %v %s", pingErr, rec.Body)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["database"] != "down" || body["status"] != "unavailable" {
+		t.Fatalf("health response: %s", rec.Body)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil {
+		t.Fatal(err)
+	}
+	if record["code"] != "SERVICE_UNAVAILABLE" || record["level"] != "ERROR" || record["status"] != float64(503) ||
+		record["request_id"] != rec.Header().Get("X-Request-ID") || strings.Contains(logs.String()+rec.Body.String(), "secret") {
+		t.Fatalf("unsafe or incomplete health diagnostics: %s %s", logs, rec.Body)
 	}
 }

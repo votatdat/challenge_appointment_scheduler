@@ -78,6 +78,7 @@ func (h appointmentHandler) create(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, r, err)
 		return
 	}
+	r.Context().Value(requestInfoKey{}).(*requestInfo).appointmentID = result.ID
 	w.Header().Set("Location", "/appointments/"+strconv.FormatInt(result.ID, 10))
 	writeJSON(w, http.StatusCreated, representation(result))
 }
@@ -94,6 +95,7 @@ func (h appointmentHandler) get(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, r, err)
 		return
 	}
+	r.Context().Value(requestInfoKey{}).(*requestInfo).appointmentID = result.ID
 	writeJSON(w, http.StatusOK, representation(result))
 }
 

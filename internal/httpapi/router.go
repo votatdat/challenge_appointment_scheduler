@@ -44,13 +44,17 @@ func (h healthHandler) handle(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), h.pingTimeout)
 	defer cancel()
 	if err := h.database.Ping(ctx); err != nil {
+		r.Context().Value(requestInfoKey{}).(*requestInfo).code = "SERVICE_UNAVAILABLE"
 		writeJSON(w, 503, map[string]string{"status": "unavailable", "database": "down"})
 		return
 	}
 	writeJSON(w, 200, map[string]string{"status": "ok", "database": "up"})
 }
 
-type requestInfo struct{ id, code string }
+type requestInfo struct {
+	id, code      string
+	appointmentID int64
+}
 type requestInfoKey struct{}
 
 func writeError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
@@ -102,8 +106,13 @@ func requestLogging(next http.Handler, logger *slog.Logger) http.Handler {
 			level = slog.LevelError
 		}
 		// Route templates avoid logging customer IDs, request bodies, or URL queries.
-		logger.Log(r.Context(), level, "HTTP request completed",
+		fields := []any{
 			"request_id", info.id, "method", r.Method, "route", r.Pattern,
-			"status", response.status, "code", info.code, "duration_ms", time.Since(start).Milliseconds())
+			"status", response.status, "code", info.code, "duration_ms", time.Since(start).Milliseconds(),
+		}
+		if info.appointmentID > 0 {
+			fields = append(fields, "appointment_id", info.appointmentID)
+		}
+		logger.Log(r.Context(), level, "HTTP request completed", fields...)
 	})
 }

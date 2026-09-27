@@ -21,7 +21,8 @@ Deliver the Unified Service Scheduler for Scenario A: a Go and PostgreSQL backen
 | Appointment HTTP API | Complete | Creation returns `201` and `Location`; retrieval returns the same persisted representation; errors carry request IDs. |
 | Business-rule tests | Complete | Independent technician/bay interval checks, time precision, eligibility, alternatives, persisted associations, and input rejection pass. |
 | Concurrency and rollback tests | Complete | Coordinated HTTP capacity checks, dealership independence, and recovery of a queued booking after commit failure pass. |
-| Verification | Business-rule, HTTP, and concurrency tests pass | Unit tests, PostgreSQL/HTTP integration tests, race detection, build, vet, cURL demonstration, and database outage/recovery checks pass. Operational review and clean-setup rehearsal remain. |
+| Operational behavior | Complete | Correlated logs, appointment IDs, request/database deadlines, safe dependency errors, and recovery are verified. |
+| Verification | Business-rule, HTTP, concurrency, and operational tests pass | Unit tests, PostgreSQL/HTTP integration tests, race detection, build, vet, cURL demonstration, and database outage/recovery checks pass. Final documentation and clean-setup rehearsal remain. |
 | Video and submission | Not completed | Recording and final repository checks follow implementation. |
 
 Completed checkboxes record finished work. Unchecked items remain planned and do not imply implementation or successful verification.
@@ -134,13 +135,13 @@ Concurrency and rollback coverage is complete. HTTP tests coordinate six indepen
 
 ### 8. Add basic operational behavior - 30 minutes
 
-Step 5 introduced request IDs, outcome/duration logs, bounded reads and database operations, and safe dependency errors. This phase completes operational review and remaining diagnostics.
+Operational review is complete. Successful appointment logs include the persisted appointment ID, health failures include a diagnostic code, and PostgreSQL background connection attempts use the configured connection deadline.
 
-- [ ] Add request IDs and structured outcome/duration logs without customer contact data.
-- [ ] Bound request and database waits with timeouts.
-- [ ] Handle database unavailability without leaking raw errors.
+- [x] Add request IDs and structured outcome/duration logs without customer contact data.
+- [x] Bound request and database waits with timeouts.
+- [x] Handle database unavailability without leaking raw errors.
 
-**Completion evidence:** Success, conflict, and failure are distinguishable in logs; failure paths terminate predictably.
+**Completion evidence:** Unit tests verify correlated success/conflict/failure logs, omitted request data, bounded health checks, and stalled connection handshakes. PostgreSQL tests verify five-second booking-lock, retrieval-query, and pool-acquisition deadlines, safe `503` responses, no extra rows, and recovery. Live checks verify five-second header and ten-second body read limits, database outage/recovery, and correlated logs. The full suite passes with race detection; local/container builds and static checks pass.
 
 ### 9. Complete documentation - 90 minutes
 

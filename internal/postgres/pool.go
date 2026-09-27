@@ -14,6 +14,9 @@ func Open(ctx context.Context, databaseURL string, maxConnections int32, connect
 		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
 	}
 	poolConfig.MaxConns = maxConnections
+	// Pool connection attempts can outlive the acquiring request. Bound their
+	// handshake too, including background replenishment and startup cleanup.
+	poolConfig.ConnConfig.ConnectTimeout = connectTimeout
 
 	connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()

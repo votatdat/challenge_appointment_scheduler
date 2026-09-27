@@ -141,9 +141,23 @@ Customers and vehicles are seeded reference data. Each seeded vehicle is associa
 
 The environment currently provides JSON lifecycle logs, bounded startup and health-check database pings, HTTP read-header and shutdown timeouts, a database-backed health route, and graceful signal handling.
 
-The appointment API generates request IDs and logs route templates, method, status, error code, and duration without request bodies, URL queries, or customer contact data. The same ID appears in `X-Request-ID` and the JSON error envelope. Invalid input maps to `400`, missing records to `404`, capacity conflicts to `409`, known dependency unavailability to `503`, and unexpected failures to `500`.
+The appointment API generates request IDs and logs route templates, method, status, error code, and duration without request bodies, URL queries, or customer contact data. Successful creation and retrieval also log the persisted `appointment_id`. The request ID appears in `X-Request-ID` and the JSON error envelope. Successful requests and expected client outcomes use `INFO`; `500` and `503` outcomes use `ERROR`. Health failures retain their separate response body and log `SERVICE_UNAVAILABLE`.
 
-POST bodies are limited to 64 KiB and one JSON object with documented fields. The HTTP server bounds body reads to ten seconds, response writes to fifteen seconds, and idle connections to sixty seconds. Creation and retrieval database operations each have a five-second deadline. Appointment IDs in outcome logs and further failure-path review remain part of the operational review.
+Invalid input maps to `400`, missing records to `404`, capacity conflicts to `409`, known dependency unavailability and database operation deadlines to `503`, and unexpected failures to `500`. Public errors use fixed messages and do not expose raw database details. POST bodies are limited to 64 KiB and one JSON object with documented fields.
+
+| Operation | Limit | Configuration |
+| --- | --- | --- |
+| HTTP headers | 5 seconds by default | `HTTP_READ_HEADER_TIMEOUT` |
+| HTTP request read, including body | 10 seconds | Fixed server setting |
+| HTTP response write | 15 seconds | Fixed server setting |
+| HTTP idle connection | 60 seconds | Fixed server setting |
+| Startup database ping and new connection handshake | 5 seconds each by default | `DB_CONNECT_TIMEOUT` |
+| Health database ping | 2 seconds by default | `DB_PING_TIMEOUT` |
+| Booking or retrieval database operation | 5 seconds | Includes pool acquisition, locks, queries, and commit |
+| Booking rollback cleanup | 2 seconds | Independent of the cancelled request context |
+| Graceful HTTP shutdown | 10 seconds by default | `HTTP_SHUTDOWN_TIMEOUT` |
+
+The connection timeout is applied to the pool's connection configuration as well as the startup ping. Background connection creation can outlive the acquiring request, so it needs its own handshake deadline. Tests verify stalled handshakes, booking-lock/query/pool waits, no extra persisted rows after timeout, and successful requests after resources are released. Live checks verify slow-header/body termination and safe database outage/recovery behavior.
 
 The planned metrics strategy counts booking attempts, successes, capacity conflicts, and unexpected failures and measures request and transaction duration. Logs provide initial diagnostic evidence; no metrics exporter or dashboard is in scope. Request IDs provide correlation inside this single service, and distributed tracing is not planned.
 
@@ -157,4 +171,4 @@ Concurrency tests observe six independent PostgreSQL sessions waiting before rel
 
 AI assisted with requirements analysis, scope comparison, identifying booking invariants, and drafting component boundaries. I selected the technologies and transaction strategy and limited the scope to a complete submission within the available time.
 
-Review clarified that both resources must be allocated atomically and that availability checks must follow the dealership lock. The design records its contention and response-loss limitations. Environment, schema, and booking transaction behavior are verified. Review strengthened timestamp parsing and cancellation cleanup; HTTP integration, business rules, and coordinated concurrency/rollback cases pass with race detection. Operational review and clean-setup rehearsal remain in the delivery plan.
+Review clarified that both resources must be allocated atomically and that availability checks must follow the dealership lock. The design records its contention and response-loss limitations. Environment, schema, and booking transaction behavior are verified. Review strengthened timestamp parsing and cancellation cleanup; HTTP integration, business rules, and coordinated concurrency/rollback cases pass with race detection. Operational checks also pass for safe logs, stalled handshakes, database deadlines, slow requests, and outage recovery. Final documentation and clean-setup rehearsal remain in the delivery plan.
