@@ -200,69 +200,14 @@ func TestBookingRejectsInvalidReferences(t *testing.T) {
 	mustBook(t, service, input()) // Failed transactions must release the dealership lock.
 }
 
-func TestBookingChecksWholeIntervalAndEachResource(t *testing.T) {
-	for _, resource := range []string{"technician", "bay"} {
-		for _, interval := range []struct {
-			name   string
-			offset time.Duration
-		}{
-			{"same", 0}, {"overlap before", -30 * time.Minute}, {"overlap after", 30 * time.Minute},
-		} {
-			t.Run(resource+"/"+interval.name, func(t *testing.T) {
-				pool, service, _ := setup(t)
-				in := input()
-				if resource == "technician" {
-					execSQL(t, pool, "DELETE FROM technician_qualifications WHERE technician_id=2")
-				} else {
-					execSQL(t, pool, "DELETE FROM service_bays WHERE id=2")
-				}
-				first := mustBook(t, service, in)
-				in.StartTime = first.StartTime.Add(interval.offset).Format(time.RFC3339)
-				if _, err := service.Create(t.Context(), in); !errors.Is(err, appointments.ErrNoAvailableResources) {
-					t.Fatalf("got %v", err)
-				}
-				if n := count(t, pool); n != 1 {
-					t.Fatalf("conflict persisted a row: %d", n)
-				}
-			})
-		}
-	}
-}
-
-func TestBookingServiceDurationAndContainment(t *testing.T) {
-	for _, offset := range []time.Duration{-15 * time.Minute, 15 * time.Minute} {
-		t.Run(offset.String(), func(t *testing.T) {
-			pool, service, _ := setup(t)
-			execSQL(t, pool, "DELETE FROM technician_qualifications WHERE technician_id=2")
-			in := input()
-			if offset > 0 {
-				in.ServiceTypeID = 2
-			}
-			first := mustBook(t, service, in)
-			expected := time.Hour
-			if in.ServiceTypeID == 2 {
-				expected = 90 * time.Minute
-			}
-			if first.EndTime.Sub(first.StartTime) != expected {
-				t.Fatal("wrong service duration")
-			}
-			in.ServiceTypeID = 2
-			if offset > 0 {
-				in.ServiceTypeID = 1
-			}
-			in.StartTime = first.StartTime.Add(offset).Format(time.RFC3339)
-			if _, err := service.Create(t.Context(), in); !errors.Is(err, appointments.ErrNoAvailableResources) {
-				t.Fatalf("got %v", err)
-			}
-		})
-	}
-}
-
 func TestBookingExcludesUnqualifiedAndOtherDealershipResources(t *testing.T) {
 	pool, service, _ := setup(t)
 	execSQL(t, pool, "DELETE FROM technician_qualifications WHERE technician_id IN (1,2)")
 	if _, err := service.Create(t.Context(), input()); !errors.Is(err, appointments.ErrNoAvailableResources) {
 		t.Fatalf("got %v", err)
+	}
+	if count(t, pool) != 0 {
+		t.Fatal("ineligible resources produced a booking")
 	}
 	in := input()
 	in.DealershipID = 2

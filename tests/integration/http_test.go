@@ -147,12 +147,15 @@ func TestHTTPValidationAndMissingReferences(t *testing.T) {
 		{"missing dealership", "dealership_id", 999, 404, "DEALERSHIP_NOT_FOUND"},
 		{"missing service", "service_type_id", 999, 404, "SERVICE_TYPE_NOT_FOUND"},
 		{"mismatched vehicle", "vehicle_id", 2, 400, "CUSTOMER_VEHICLE_MISMATCH"},
-		{"zero ID", "customer_id", 0, 400, "INVALID_REQUEST"},
-		{"null ID", "customer_id", nil, 400, "INVALID_REQUEST"},
 		{"missing field", "start_time", nil, 400, "INVALID_REQUEST"},
+		{"null start", "start_time", nil, 400, "INVALID_REQUEST"},
+		{"invalid date", "start_time", "2099-02-30T10:00:00Z", 400, "INVALID_REQUEST"},
 		{"no offset", "start_time", "2099-01-01T10:00:00", 400, "INVALID_REQUEST"},
 		{"past time", "start_time", "2000-01-01T10:00:00Z", 400, "INVALID_REQUEST"},
-		{"client-controlled resource", "technician_id", 1, 400, "INVALID_REQUEST"},
+		{"client-controlled technician", "technician_id", 1, 400, "INVALID_REQUEST"},
+		{"client-controlled bay", "service_bay_id", 1, 400, "INVALID_REQUEST"},
+		{"client-controlled end", "end_time", "2099-01-01T11:00:00Z", 400, "INVALID_REQUEST"},
+		{"client-controlled status", "status", "CONFIRMED", 400, "INVALID_REQUEST"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := httpInput()
@@ -186,5 +189,38 @@ func TestHTTPFailedCommitReturns500WithoutData(t *testing.T) {
 	}
 	if result.header.Get("Location") != "" || count(t, pool) != 0 {
 		t.Fatal("failed commit appeared successful")
+	}
+}
+
+func TestHTTPRejectsInvalidIDsWithoutPersistence(t *testing.T) {
+	pool, service, _ := setup(t)
+	server := httptest.NewServer(httpapi.NewHandler(pool, time.Second, service, slog.New(slog.NewJSONHandler(io.Discard, nil))))
+	t.Cleanup(server.Close)
+	for _, field := range []string{"customer_id", "vehicle_id", "dealership_id", "service_type_id"} {
+		for _, tc := range []struct {
+			name  string
+			value any
+		}{
+			{"missing", nil}, {"null", nil}, {"zero", 0}, {"negative", -1},
+			{"fractional", 1.5}, {"string", "1"}, {"overflow", uint64(1) << 63},
+		} {
+			t.Run(field+"/"+tc.name, func(t *testing.T) {
+				body := httpInput()
+				body[field] = tc.value
+				if tc.name == "missing" {
+					delete(body, field)
+				}
+				result := callHTTP(t, server, "POST", "/appointments", body)
+				checkHTTPError(t, result, 400, "INVALID_REQUEST")
+				if result.header.Get("Location") != "" || count(t, pool) != 0 {
+					t.Fatal("invalid ID produced a persisted appointment or Location")
+				}
+			})
+		}
+	}
+	// Rejected inputs must not prevent a subsequent valid booking.
+	result := callHTTP(t, server, "POST", "/appointments", httpInput())
+	if result.status != 201 || count(t, pool) != 1 {
+		t.Fatalf("valid booking after invalid input failed: %d %s", result.status, result.body)
 	}
 }

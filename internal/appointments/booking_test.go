@@ -15,6 +15,10 @@ func TestValidate(t *testing.T) {
 	}{
 		{"offset", "2030-01-02T17:00:00+07:00", true},
 		{"UTC", "2030-01-02T10:00:00Z", true},
+		{"negative offset crosses date", "2029-12-31T23:30:00-01:00", true},
+		{"one microsecond in future", "2030-01-01T00:00:00.000001Z", true},
+		{"offset instant is now", "2030-01-01T07:00:00+07:00", false},
+		{"UTC year overflow", "9999-12-31T23:59:59-01:00", false},
 		{"fraction", "2030-01-02T10:00:00.123456789Z", true},
 		{"no offset", "2030-01-02T10:00:00", false},
 		{"empty", "", false},

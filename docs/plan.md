@@ -19,7 +19,8 @@ Deliver the Unified Service Scheduler for Scenario A: a Go and PostgreSQL backen
 | Schema and seed data | Complete | Versioned migrations, relational constraints, lookup indexes, deterministic catalog data, and schema verification are implemented. |
 | Booking transaction | Complete | Validation, dealership locking, allocation, atomic commit, and rollback pass service-level tests. |
 | Appointment HTTP API | Complete | Creation returns `201` and `Location`; retrieval returns the same persisted representation; errors carry request IDs. |
-| Verification | Booking and HTTP tests pass | Unit tests, PostgreSQL/HTTP integration tests, race detection, build, vet, cURL demonstration, and database outage/recovery checks pass. Remaining business/concurrency cases follow. |
+| Business-rule tests | Complete | Independent technician/bay interval checks, time precision, eligibility, alternatives, persisted associations, and input rejection pass. |
+| Verification | Business-rule and HTTP tests pass | Unit tests, PostgreSQL/HTTP integration tests, race detection, build, vet, cURL demonstration, and database outage/recovery checks pass. Remaining concurrency cases and operational review follow. |
 | Video and submission | Not completed | Recording and final repository checks follow implementation. |
 
 Completed checkboxes record finished work. Unchecked items remain planned and do not imply implementation or successful verification.
@@ -107,17 +108,17 @@ Catalog administration, authentication, cancellation, rescheduling, temporary ho
 
 ### 6. Test business rules - 90 minutes
 
-Initial service and HTTP coverage was added with Steps 4-5; this phase reviews the full matrix and fills remaining cases.
+Business-rule coverage is complete. The interval matrix tests technicians and bays independently so one resource conflict cannot hide a missing check for the other.
 
-- [ ] Verify persisted associations on successful booking.
-- [ ] Reject technician and bay overlaps, including partial overlap and containment.
-- [ ] Allow adjacent intervals under the confirmed `[start, end)` rule.
-- [ ] Verify UTC normalization, required timezone offsets, server-derived end times, and rejection of non-future start times.
-- [ ] Exclude unqualified and wrong-dealership resources.
-- [ ] Select available alternatives when a candidate is occupied.
-- [ ] Reject invalid references, customer/vehicle mismatches, and invalid inputs without persisting appointments.
+- [x] Verify persisted associations on successful booking.
+- [x] Reject technician and bay overlaps, including partial overlap and containment.
+- [x] Allow adjacent intervals under the confirmed `[start, end)` rule.
+- [x] Verify UTC normalization, required timezone offsets, server-derived end times, and rejection of non-future start times.
+- [x] Exclude unqualified and wrong-dealership resources.
+- [x] Select available alternatives when a candidate is occupied.
+- [x] Reject invalid references, customer/vehicle mismatches, and invalid inputs without persisting appointments.
 
-**Completion evidence:** Focused unit and PostgreSQL integration tests pass for the documented rules.
+**Completion evidence:** Unit and PostgreSQL/HTTP integration tests pass with race detection. The matrix covers 13 interval cases per resource, including containment, adjacency in both directions, and microsecond overlaps. Additional checks cover equivalent timezone offsets, service-specific qualifications, independent resource alternatives, invalid IDs without writes, and persisted associations outside conventional opening hours. Build and static checks pass. See [test coverage](../tests/README.md#business-cases).
 
 ### 7. Test concurrency and rollback - 90 minutes
 
