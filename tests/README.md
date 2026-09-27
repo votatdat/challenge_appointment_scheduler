@@ -19,7 +19,7 @@ Verified coverage includes persisted associations, independent resource alternat
 
 HTTP coverage verifies creation and identical retrieval, UTC fields, `Location`, malformed and oversized bodies, invalid IDs and media types, missing references, capacity conflicts, safe error envelopes, and request-log correlation. A real database commit failure returns `500` without a persisted row. Database error classification is unit-tested; a live PostgreSQL stop/restart rehearsal verified both endpoints return `503` and recover afterward.
 
-Concurrent capacity checks, dealership independence, and queued recovery after a failed commit are covered below. The final clean-setup rehearsal remains in the [delivery plan](../docs/plan.md).
+Concurrent capacity checks, dealership independence, and queued recovery after a failed commit are covered below. The final clean-setup rehearsal is complete; video and submission remain in the [delivery plan](../docs/plan.md).
 
 | Directory | Purpose |
 | --- | --- |
@@ -83,3 +83,15 @@ Performance experiments are outside the delivery scope. These tests verify the s
 | Database outage/recovery | A live PostgreSQL stop/restart rehearsal verified safe `503` responses on both appointment routes and health, correlated error logs, successful recovery, and unchanged demonstration appointments. |
 
 The first four checks run in the automated suites. Slow-request and database stop/restart checks were performed against the running application; ordinary integration tests do not stop the shared database.
+
+## Clean-setup rehearsal
+
+A copy of the tracked source files was tested with a newly generated `.env` and an isolated Compose project and PostgreSQL volume. Separate ports protected the existing development environment. The README workflows passed without implementation fixes:
+
+- First migration and seed, repeat initialization, migration version, and schema verification.
+- Docker startup, health, and two cURL bookings using distinct resource pairs; a third request returned `409` without another row.
+- Container removal and recreation while retaining the volume; both created appointments were retrieved unchanged.
+- Local Go startup against the same database, retrieval, a new cURL booking, and graceful shutdown.
+- Local/container builds, unit and full integration suites with race detection, static analysis including integration tests, and formatting.
+
+Integration tests left no temporary schemas. Rehearsal containers, volume, and image were removed afterward. The existing development environment file and database volume were preserved.

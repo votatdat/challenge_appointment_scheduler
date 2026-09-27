@@ -22,9 +22,10 @@ Deliver the Unified Service Scheduler for Scenario A: a Go and PostgreSQL backen
 | Business-rule tests | Complete | Independent technician/bay interval checks, time precision, eligibility, alternatives, persisted associations, and input rejection pass. |
 | Concurrency and rollback tests | Complete | Coordinated HTTP capacity checks, dealership independence, and recovery of a queued booking after commit failure pass. |
 | Operational behavior | Complete | Correlated logs, appointment IDs, request/database deadlines, safe dependency errors, and recovery are verified. |
-| Verification | Business-rule, HTTP, concurrency, and operational tests pass | Unit tests, PostgreSQL/HTTP integration tests, race detection, build, vet, cURL demonstration, and database outage/recovery checks pass. Final clean-setup rehearsal remains. |
+| Verification | Business-rule, HTTP, concurrency, and operational tests pass | Unit tests, PostgreSQL/HTTP integration tests, race detection, build, vet, cURL demonstration, and database outage/recovery checks pass. The clean-setup rehearsal also passes; video and submission remain. |
 | Documentation | Complete | README setup/verification commands, API examples, architecture, package notes, and both AI narratives match the delivered implementation. |
-| Video and submission | Not completed | Recording and final repository checks follow implementation. |
+| Clean-setup rehearsal | Complete | Fresh migration/seed, Docker and local Go workflows, capacity conflict, restart persistence, and final checks pass. |
+| Video and submission | Not completed | Record the walkthrough and verify repository/video access before submitting. |
 
 Completed checkboxes record finished work. Unchecked items remain planned and do not imply implementation or successful verification.
 
@@ -151,16 +152,16 @@ Operational review is complete. Successful appointment logs include the persiste
 - [x] Publish exact build, run, migration, seed, and test instructions in the README.
 - [x] Update both AI narratives with actual design and implementation evidence.
 
-**Completion evidence:** README commands match Make targets, configuration, and prior runtime verification. Architecture records implemented components, the locking guarantee, contention, commit uncertainty, and operational limits. API examples match seeded relationships; package/test documents describe existing files. Both AI narratives are concise and evidence-based. Public Markdown passes ASCII, local-link, and anchor checks. Fresh-database rehearsal remains Step 10.
+**Completion evidence:** README commands match Make targets, configuration, and prior runtime verification. Architecture records implemented components, the locking guarantee, contention, commit uncertainty, and operational limits. API examples match seeded relationships; package/test documents describe existing files. Both AI narratives are concise and evidence-based. Public Markdown passes ASCII, local-link, and anchor checks. Fresh-database rehearsal evidence is recorded in Step 10.
 
 ### 10. Rehearse from clean setup - 1 hour
 
-- [ ] Follow the README against a fresh database and verify persistence across restart.
-- [ ] Run the build, tests, and appropriate Go static checks.
-- [ ] Rehearse successful booking, retrieval, conflict, and concurrency verification.
-- [ ] Resolve blockers and stale documentation.
+- [x] Follow the README against a fresh database and verify persistence across restart.
+- [x] Run the build, tests, and appropriate Go static checks.
+- [x] Rehearse successful booking, retrieval, conflict, and concurrency verification.
+- [x] Resolve blockers and stale documentation.
 
-**Completion evidence:** The demonstration is reproducible without unwritten setup steps.
+**Completion evidence:** A clean source copy, new environment file, and new PostgreSQL volume reproduced the README setup. First migration/seed, repeat initialization, schema verification, Docker startup, and the cURL demo passed. Two bookings used distinct resource pairs; a third returned `409` without another row. Both bookings remained identical after container recreation. Local Go startup, retrieval, a new booking, and graceful shutdown also passed. Local/container builds, unit and full integration suites with race detection, static checks, and formatting passed. No implementation fixes were needed. See [rehearsal coverage](../tests/README.md#clean-setup-rehearsal).
 
 ### 11. Record the video - 90 minutes
 
@@ -196,10 +197,10 @@ Feature scope freezes after day 4. Remaining time goes to correctness issues, re
 
 ## Final readiness
 
-- [ ] All three Scenario A acceptance criteria demonstrated.
-- [ ] Concurrent requests cannot double-book through the supported API.
-- [ ] REST API, PostgreSQL persistence, and business-rule tests work.
-- [ ] Client examples are reproducible.
+- [x] All three Scenario A acceptance criteria demonstrated.
+- [x] Concurrent requests cannot double-book through the supported API.
+- [x] REST API, PostgreSQL persistence, and business-rule tests work.
+- [x] Client examples are reproducible.
 - [x] Architecture covers components, data flow, technologies, observability, and GenAI use.
 - [x] README includes build/run/test instructions and a concise AI Collaboration Narrative.
 - [ ] Video meets the 5-10 minute requirement, including 1-2 minutes on AI collaboration.

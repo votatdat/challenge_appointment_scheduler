@@ -2,7 +2,7 @@
 
 A Go and PostgreSQL backend for Scenario A of the Keyloop Technical Assessment. It confirms a vehicle service appointment only when a qualified technician and a service bay are available for the entire service duration.
 
-**Status:** Implementation, business-rule tests, concurrency/rollback tests, and operational checks are complete. Final clean-setup rehearsal, video, and submission remain in the [delivery plan](docs/plan.md).
+**Status:** Implementation, automated tests, operational checks, and the clean-setup rehearsal are complete. Video and submission remain in the [delivery plan](docs/plan.md).
 
 ## API and scope
 
@@ -148,4 +148,4 @@ Unit tests live beside their implementation. Catalog relationships are queried i
 
 I guided AI through a small delivery plan, selected Go/PostgreSQL and dealership locking, and kept the scope focused on booking correctness. I reviewed its proposals against the brief and required evidence before marking steps complete.
 
-Review refined timestamp parsing and cancellation cleanup and found that background connection attempts needed their own deadline. Verification combines unit tests, real PostgreSQL/HTTP tests, observed database contention, injected commit failures, race detection, and live slow-request/outage rehearsals. These checks support the delivered behavior; the final clean-setup rehearsal remains a separate delivery step.
+Review refined timestamp parsing and cancellation cleanup and found that background connection attempts needed their own deadline. Verification combines unit tests, real PostgreSQL/HTTP tests, observed database contention, injected commit failures, race detection, and live slow-request/outage rehearsals. The clean-setup rehearsal also reproduced the documented Docker/local Go workflows and persistence across container recreation.
