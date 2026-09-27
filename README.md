@@ -1,133 +1,151 @@
 # Unified Service Scheduler
 
-A Go backend for booking vehicle service appointments at a dealership. A booking requires both a qualified technician and a service bay for the full service duration.
+A Go and PostgreSQL backend for Scenario A of the Keyloop Technical Assessment. It confirms a vehicle service appointment only when a qualified technician and a service bay are available for the entire service duration.
 
-This project is the backend submission for Scenario A of the Keyloop Technical Assessment.
+**Status:** Implementation, business-rule tests, concurrency/rollback tests, and operational checks are complete. Final clean-setup rehearsal, video, and submission remain in the [delivery plan](docs/plan.md).
 
-**Status:** Appointment creation and retrieval are implemented with PostgreSQL persistence, resource locking, JSON errors, and request IDs. Unit and HTTP/PostgreSQL integration tests pass. Business-rule, concurrency, rollback, and operational checks are complete; remaining delivery work includes final documentation, clean-setup rehearsal, and video.
+## API and scope
 
-## Scope
-
-Clients provide a customer, vehicle, dealership, service type, and desired start time. The server calculates the duration, selects eligible resources, and persists a confirmed appointment. Overlapping appointments must not share a technician or service bay.
-
-The selected API consists of:
-
-| Method | Path | Purpose |
+| Method | Path | Result |
 | --- | --- | --- |
 | POST | `/appointments` | Create a confirmed appointment; `201 Created` with `Location`. |
 | GET | `/appointments/{id}` | Retrieve the persisted appointment; `200 OK`. |
+| GET | `/healthz` | Database-backed health status; `200` or `503`. |
 
-The [API contract](api/README.md) is confirmed: positive integer IDs, RFC 3339 input timestamps, UTC responses, and consistent errors with request IDs. Both endpoints are implemented.
+Clients supply customer, vehicle, dealership, service type, and start time. The server validates ownership, derives duration, allocates both resources, and commits the booking before returning success. See the [API contract and examples](api/README.md).
 
-Catalog data is seeded with deterministic IDs and resource combinations. `make demo` demonstrates creation and retrieval using cURL. Authentication, catalog administration, cancellation, rescheduling, temporary holds, and a separate availability endpoint are outside scope.
-
-Start times must be in the future, include a timezone offset, and are normalized to UTC. The service type determines duration, and `[start, end)` intervals allow back-to-back appointments. Resources are available unless booked, without working-hours or maintenance schedules. Booking validates the seeded customer/vehicle relationship but does not verify customer identity. See [Architecture assumptions](docs/architecture.md#assumptions).
-
-## Technology choices
-
-- Go 1.27.1 with `net/http` and `http.ServeMux`.
-- PostgreSQL 18.6 on Alpine 3.23.
-- `pgx/v5` 5.11.0 with `pgxpool`.
-- `golang-migrate` 4.19.1 with SQL migration files.
-- Docker Compose for the local application and database.
-- `READ COMMITTED` transactions with a dealership row lock before checking availability.
-
-See [Architecture](docs/architecture.md) for component responsibilities, data flow, and tradeoffs.
+Starts must be in the future and include a timezone offset. Times normalize to UTC at microsecond precision; `[start, end)` intervals allow back-to-back bookings. Resources are continuously available unless booked. Customers and vehicles are seeded reference data. Authentication, catalog administration, working-hours schedules, cancellation, rescheduling, holds, and availability browsing are outside scope.
 
 ## Build, run, and test
 
-Prerequisites are Go 1.27.1, Docker with Compose, GNU Make, cURL, and a POSIX shell with GNU coreutils (for example, WSL).
+Run commands from the repository root. Container setup requires Docker with Compose, GNU Make, cURL, and a POSIX shell with GNU coreutils, such as WSL. Local builds and tests additionally require Go 1.27.1. Race detection requires a supported Go platform with CGO enabled and a C compiler.
 
-Initialize the database and start the complete local environment:
+### Start with Docker
 
 ```bash
-cp .env.example .env
+make env
 make db-init
 make up
 curl --fail http://localhost:8080/healthz
-```
-
-A healthy service returns:
-
-```json
-{"database":"up","status":"ok"}
-```
-
-Create and retrieve an appointment with seeded IDs and a start time one day ahead:
-
-```bash
 make demo
 ```
 
-The script expects `201`, follows the `Location` header, expects `200`, and checks that both JSON representations match. Each run creates a persisted appointment. Override `START_TIME` with a future RFC 3339 timestamp or `BASE_URL` for a different server. If a repeated run fills the available resources, choose a different start time. See [API usage](api/README.md#curl-demonstration).
+`make env` creates `.env` from [.env.example](.env.example) only if it is missing. `make db-init` applies migrations and seeds the catalog. `make up` builds the application image, applies pending migrations, and starts the app and database; it does not seed data by itself. PostgreSQL data is stored in a named volume.
 
-Database operations are available separately:
+A healthy service returns `{"database":"up","status":"ok"}`. `make demo` creates an appointment one day ahead, retrieves its `Location`, and verifies identical JSON. Each successful run adds one appointment. Set `START_TIME` to another future RFC 3339 value if repeated runs fill capacity, or set `BASE_URL` to target another server. See [demo options](api/README.md#curl-demonstration).
+
+Stop containers while retaining data:
 
 ```bash
-make migrate-up       # Apply pending migrations
-make migrate-version  # Show the current schema version
-make seed             # Load deterministic demonstration data
-make db-verify        # Verify seed relationships, constraints, and indexes
+make down
 ```
 
-`make migrate-down` reverts the latest migration and deletes its schema data. Stop containers while preserving PostgreSQL data with `make down`.
+### Run Go locally
 
-For local Go development, initialize the database once and run the API outside its container:
+Stop the container environment first to free the application port, then start the database and local API:
 
 ```bash
+make down
 make db-init
 make run
 ```
 
-Current verification commands are:
+`make run` loads `.env` and runs `cmd/api`. Stop it with Ctrl+C; use `make down` afterward to stop PostgreSQL. To compile without starting the application:
 
 ```bash
 make build
-make test
-make vet
-make db-verify
-make test-integration  # Real PostgreSQL booking tests in temporary schemas
-# Or run the current Go checks together:
-make check
 ```
 
-Use `make help` to list all available commands. `make test-integration` starts PostgreSQL and uses `TEST_DATABASE_URL` when set, otherwise `DATABASE_URL` from `.env`. Each test applies the migration in a unique schema and removes that schema afterward, preserving demonstration data. The database role must be allowed to create schemas. See [test coverage and remaining work](tests/README.md).
+The binary is written to `bin/scheduler-api`. If Go is outside your shell's PATH, override the Make variable, for example `make GO=/usr/local/go/bin/go build`.
 
-## Operational behavior
+### Migrations and seed data
 
-Each request receives an `X-Request-ID` correlated with a JSON outcome log. Successful creation and retrieval also log `appointment_id`; request bodies, URL queries, and customer contact data are omitted. Database failures return safe `503` responses, and request/database waits have deadlines. Inspect logs with `docker compose logs --no-color app`. See [operational limits](docs/architecture.md#observability-and-failure-handling) for timeouts and configuration.
+```bash
+make migrate-up       # Apply pending migrations
+make migrate-version  # Show the current schema version
+make seed             # Upsert deterministic demonstration data
+make db-verify        # Apply migrations/seed, then verify relationships and constraints
+```
+
+The seed includes two dealerships, qualified and unqualified technicians, alternative bays, customers, vehicles, services, and one occupied pair. [Database documentation](database/README.md) lists the IDs and relationships. Re-seeding restores the fixed demonstration records and preserves other appointment IDs. `make migrate-down` reverts the latest migration; with the initial migration, this deletes all application tables and their data.
+
+### Verification
+
+```bash
+make check            # Unit tests and Go static analysis
+make test-integration # Real PostgreSQL tests in temporary schemas
+make db-verify        # Seed and schema checks
+```
+
+Run race detection and static analysis of integration tests with:
+
+```bash
+GOFLAGS=-race make test test-integration
+go vet -tags=integration ./...
+```
+
+Integration tests start PostgreSQL and use `TEST_DATABASE_URL` when set, otherwise `DATABASE_URL` from `.env`. Each test applies the migration and loads its own fixtures in a unique schema, then removes that schema. The database role needs schema-creation permission; demonstration tables are preserved. `make check` does not run integration tests. See [test coverage](tests/README.md), including the distinction between automated tests and live operational rehearsals.
+
+Use `make help` for all targets.
+
+## Configuration and operations
+
+Defaults in `.env.example` match the Compose setup:
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `APP_PORT` | `8080` | Published container port and default demo port. |
+| `APP_ADDR` | `:8080` | Listen address for local Go execution. |
+| `POSTGRES_PORT` | `5432` | Published database port. |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | `scheduler` | Local PostgreSQL initialization and container connection settings. |
+| `DATABASE_URL` | Local PostgreSQL URL in `.env.example` | Connection for local Go execution and integration tests. |
+| `DB_MAX_CONNECTIONS` | `10` | Maximum application pool size. |
+
+The app container connects to `db:5432`; local Go connects through the published port. If you change `POSTGRES_PORT`, also update `DATABASE_URL`. Adjust the cURL address when changing the app port; for local Go, keep `APP_ADDR` and the demo's `APP_PORT` or `BASE_URL` consistent. Connection and HTTP timeout settings are listed in [operational limits](docs/architecture.md#observability-and-failure-handling).
+
+Each handled request receives an `X-Request-ID` correlated with a JSON outcome log. Successful creation and retrieval also log `appointment_id`; bodies, query values, and customer contact data are omitted. Dependency unavailability and database deadlines return safe `503` responses; unexpected failures return `500`. Inspect logs with `docker compose logs --no-color app`.
+
+## Design and limits
+
+The service uses Go `net/http` and `ServeMux`, `pgx/v5` 5.11.0 with `pgxpool`, PostgreSQL 18.6 on Alpine 3.23, and `golang-migrate` 4.19.1 SQL migrations.
+
+- A `READ COMMITTED` transaction locks the dealership before checking availability and commits both resource assignments together.
+- All booking writers must follow that protocol. Direct SQL writes do not receive overlap protection, and catalog data is assumed static.
+- Bookings at the same dealership serialize, even when different resource pairs are available. Different dealerships have separate lock rows.
+- A lost response or connection failure during commit can leave the client uncertain whether the booking exists. There is no idempotency key or automatic retry; another POST may create another booking if capacity remains.
+
+[Architecture](docs/architecture.md) explains the components, data flow, relational constraints, assumptions, and tradeoffs. No throughput benchmark or production capacity claim is made.
 
 ## Project structure
 
 ```text
 .
-|-- README.md                 # Project overview and usage
+|-- README.md
+|-- Makefile                  # Build, environment, database, and test commands
+|-- compose.yaml              # Application, PostgreSQL, and migration containers
+|-- Dockerfile                # Application image
 |-- docs/
 |   |-- architecture.md       # System design and tradeoffs
 |   `-- plan.md               # Delivery progress and decisions
-|-- cmd/api/                  # Server startup and graceful shutdown
+|-- cmd/api/                  # Startup and graceful shutdown
 |-- internal/
-|   |-- httpapi/              # Health and appointment HTTP handlers
-|   |-- appointments/         # Booking rules and allocation
-|   |-- catalog/              # Catalog models and qualifications
-|   |-- postgres/             # Booking transaction and retrieval
-|   `-- config/               # Validated environment configuration
+|   |-- httpapi/              # Routes, JSON contracts, and request logs
+|   |-- appointments/         # Input validation and repository contract
+|   |-- postgres/             # Pool, transaction, allocation, and retrieval
+|   `-- config/               # Environment configuration
 |-- database/
-|   |-- migrations/           # Versioned SQL schema changes
-|   |-- seeds/                # Deterministic demonstration data
-|   `-- verify.sql            # Schema and seed verification
-|-- api/                      # API contract documentation
-|-- tests/
-|   |-- integration/          # PostgreSQL, HTTP, and concurrency tests
-|   |-- e2e/                  # HTTP booking workflows
-|   `-- fixtures/             # Deterministic test data
-`-- scripts/                  # Setup and demonstration helpers
+|   |-- migrations/           # Versioned SQL schema
+|   |-- seeds/                # Demonstration data
+|   `-- verify.sql            # Schema and seed checks
+|-- api/                      # API contract and examples
+|-- tests/integration/        # PostgreSQL, HTTP, concurrency, and deadline tests
+`-- scripts/demo.sh           # cURL creation/retrieval demonstration
 ```
 
-The tree includes the implemented booking service, PostgreSQL transaction, and integration tests, plus planned catalog and additional test packages. Planned directories will be created with their first real files. Go unit tests will live beside the corresponding implementation as `*_test.go` files.
+Unit tests live beside their implementation. Catalog relationships are queried inside the PostgreSQL transaction; integration fixtures live with the tests.
 
 ## AI Collaboration Narrative
 
-I used AI to analyze requirements and compare designs, then selected a small Go/PostgreSQL backend focused on booking correctness. I reviewed the proposals against the brief and narrowed the scope to preserve time for tests, documentation, and the demonstration. Design review clarified customer associations, atomic resource allocation, and the conditions needed for meaningful concurrency tests.
+I guided AI through a small delivery plan, selected Go/PostgreSQL and dealership locking, and kept the scope focused on booking correctness. I reviewed its proposals against the brief and required evidence before marking steps complete.
 
-Verification uses unit tests and real PostgreSQL/HTTP tests for persisted bookings, interval boundaries, concurrent allocation, and rollback. Review refined timestamp parsing and cancellation cleanup, and found that background connection attempts needed their own deadline; a stalled-handshake regression now covers that gap. Race checks, repeated contention tests, and live creation/retrieval, slow-request, and outage rehearsals provide evidence for correctness and recovery.
+Review refined timestamp parsing and cancellation cleanup and found that background connection attempts needed their own deadline. Verification combines unit tests, real PostgreSQL/HTTP tests, observed database contention, injected commit failures, race detection, and live slow-request/outage rehearsals. These checks support the delivered behavior; the final clean-setup rehearsal remains a separate delivery step.

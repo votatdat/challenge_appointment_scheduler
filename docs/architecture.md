@@ -2,7 +2,7 @@
 
 ## Status and purpose
 
-This document describes the selected design for the Unified Service Scheduler. It covers the architecture, component responsibilities, data flow, technology choices, observability strategy, and GenAI use during design.
+This document describes the implemented design for the Unified Service Scheduler. It covers the architecture, component responsibilities, data flow, technology choices, observability strategy, and GenAI use during design.
 
 The design choices below are recorded in [My decision](plan.md#my-decision). Domain assumptions and the [API contract](../api/README.md) are confirmed. The local environment, schema, demonstration data, and booking transaction are implemented and verified. Booking validation, HTTP contracts, and PostgreSQL integration tests pass. Both appointment endpoints and the cURL workflow are implemented.
 
@@ -39,12 +39,11 @@ The paths shown above are implemented and verified.
 | Application entry point | `cmd/api/` | Implemented: load configuration, connect dependencies, start the HTTP server, and shut down cleanly. |
 | HTTP API | `internal/httpapi/` | Implemented: health and appointment routes, bounded JSON decoding, request IDs, response mapping, and request logs. |
 | Booking workflow | `internal/appointments/` | Implemented: validate IDs and RFC 3339 timestamps, normalize UTC, define results and domain errors, and call the atomic booking repository. |
-| Catalog model | `internal/catalog/` | Planned: represent customers, vehicles, dealerships, service types, technicians, qualifications, and bays. |
 | PostgreSQL access | `internal/postgres/` | Implemented: connection pool and booking transaction, including catalog checks, duration calculation, resource selection, insertion, commit, rollback, and appointment retrieval. |
 | Configuration | `internal/config/` | Implemented: load and validate connection, timeout, pool, and server settings. |
 | Schema and seed data | `database/` | Implemented: apply a reversible schema migration, load deterministic demonstration data, and verify constraints and indexes. |
 
-These are packages within one application, not independent services. The booking service depends on a `Repository` interface with creation and retrieval. PostgreSQL owns the entire allocation transaction so each query uses the same connection; booking code has no HTTP dependency.
+The Go components run in one application. The booking service depends on a `Repository` interface with creation and retrieval. The PostgreSQL repository owns the entire allocation transaction so each query uses the same connection; booking code has no HTTP dependency. Catalog relationships are represented by SQL tables and checked within that transaction.
 
 ## Selected technologies and rationale
 
@@ -54,7 +53,7 @@ These are packages within one application, not independent services. The booking
 | `net/http` and `http.ServeMux` | Go standard library | Standard-library HTTP handling keeps the small API direct. |
 | PostgreSQL | 18.6 on Alpine 3.23 | Relational persistence and transactions for appointments and resource associations. |
 | `pgx/v5` and `pgxpool` | 5.11.0 | Explicit PostgreSQL access, transactions, and pooled connections. |
-| `golang-migrate` and SQL files | 4.19.1 | Versioned, reviewable schema changes; introduced with the schema step. |
+| `golang-migrate` and SQL files | 4.19.1 | Versioned SQL changes that can be applied and rolled back independently of application startup. |
 | Docker Compose | Compose v5 | Reproducible local application and database services with persistent storage. |
 | cURL | Local client | A repeatable demonstration without a separate frontend. |
 
@@ -101,23 +100,23 @@ All booking transactions acquire the dealership row lock before reading availabi
 
 At `READ COMMITTED`, later statements can observe changes committed before those statements start. After a waiting request acquires the dealership lock, its subsequent availability queries see the previous booking. This is the intended use of PostgreSQL's [row locks](https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ROWS) and [statement snapshots](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED).
 
-The guarantee depends on every booking writer using this protocol, each resource belonging to one dealership, and static catalog data. An in-process mutex is not the concurrency authority. The contention test observes six independent PostgreSQL sessions waiting on the dealership lock, then verifies one success, five conflicts, and one committed appointment.
+The guarantee depends on every booking writer using this protocol, each resource belonging to one dealership, and static catalog data. PostgreSQL coordinates the writers. Tests observe six independent sessions waiting on the dealership lock, then verify one or two successes according to resource capacity, the remaining capacity conflicts, and matching committed rows.
 
 ### Tradeoffs and limits
 
 - Requests for different resources at the same dealership still wait for one another. Keep the transaction short and bound waits with timeouts.
-- Independent resource pairs can both succeed; serialization must not produce false capacity conflicts.
+- Independent resource pairs can both succeed after serialization; the HTTP capacity matrix verifies this behavior.
 - Direct SQL writes that bypass the protocol are not protected by the locking workflow.
-- A lost response after commit leaves the client uncertain about success. Automatic retries and idempotency are outside scope.
+- A lost response or connection failure during commit can leave the client uncertain whether a booking exists. There is no idempotency key or automatic retry; another POST may create an additional booking if capacity remains.
 - The implementation does not claim a measured throughput or production capacity.
 
-This choice prioritizes a small, reviewable transaction boundary. No comparison of multiple concurrency implementations is planned.
+This choice keeps resource allocation within one short, reviewable transaction boundary.
 
 ## Scope
 
 Confirmed scope: two endpoints, seeded static catalog, confirmed-only appointments, server-side resource allocation, and a cURL client.
 
-Authentication, catalog administration, cancellation, rescheduling, reservation holds, caching, notifications, and a separate availability endpoint are excluded. This is an assessment implementation, not a complete dealership scheduling product.
+Authentication, catalog administration, cancellation, rescheduling, reservation holds, caching, notifications, and a separate availability endpoint are excluded. The implementation covers the assessment booking workflow.
 
 ## Assumptions
 
@@ -135,7 +134,7 @@ For the scope of this assessment, technicians and service bays are assumed to be
 
 ### Customer and Vehicle
 
-Customers and vehicles are seeded reference data. Each seeded vehicle is associated with a customer. The service validates that the requested vehicle belongs to the supplied customer before creating an appointment. Authentication and customer identity verification are outside scope.
+Customers and vehicles are seeded reference data. Each seeded vehicle is associated with a customer. The service validates that the requested vehicle belongs to the supplied customer before creating an appointment. Authentication and customer identity verification are outside scope. Overlap checks protect technician and bay occupancy; customer and vehicle exclusivity are not modeled.
 
 ## Observability and failure handling
 
@@ -159,7 +158,7 @@ Invalid input maps to `400`, missing records to `404`, capacity conflicts to `40
 
 The connection timeout is applied to the pool's connection configuration as well as the startup ping. Background connection creation can outlive the acquiring request, so it needs its own handshake deadline. Tests verify stalled handshakes, booking-lock/query/pool waits, no extra persisted rows after timeout, and successful requests after resources are released. Live checks verify slow-header/body termination and safe database outage/recovery behavior.
 
-The planned metrics strategy counts booking attempts, successes, capacity conflicts, and unexpected failures and measures request and transaction duration. Logs provide initial diagnostic evidence; no metrics exporter or dashboard is in scope. Request IDs provide correlation inside this single service, and distributed tracing is not planned.
+Implemented observability consists of request/lifecycle logs and the database-backed health route. Logs expose request duration and HTTP outcomes, allowing successes, conflicts, and failures to be distinguished. Transaction-duration metrics, a metrics exporter, dashboards, and distributed tracing are outside scope.
 
 ## Verification strategy
 
@@ -169,6 +168,6 @@ Concurrency tests observe six independent PostgreSQL sessions waiting before rel
 
 ## GenAI use during design
 
-AI assisted with requirements analysis, scope comparison, identifying booking invariants, and drafting component boundaries. I selected the technologies and transaction strategy and limited the scope to a complete submission within the available time.
+I used AI to compare scope and concurrency choices, identify booking invariants, and draft component boundaries. I selected a single Go/PostgreSQL service and a dealership row lock to keep allocation atomic and the implementation reviewable.
 
-Review clarified that both resources must be allocated atomically and that availability checks must follow the dealership lock. The design records its contention and response-loss limitations. Environment, schema, and booking transaction behavior are verified. Review strengthened timestamp parsing and cancellation cleanup; HTTP integration, business rules, and coordinated concurrency/rollback cases pass with race detection. Operational checks also pass for safe logs, stalled handshakes, database deadlines, slow requests, and outage recovery. Final documentation and clean-setup rehearsal remain in the delivery plan.
+Review made the ordering requirement explicit: acquire the lock before availability queries so their `READ COMMITTED` snapshots include the previous booking. Verification then used observed lock waiters, committed-row checks, and a failed commit with another request queued behind it. The design records the resulting guarantee alongside dealership contention, static-catalog assumptions, and uncertain outcomes when a commit response is lost.

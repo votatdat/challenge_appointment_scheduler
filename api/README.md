@@ -2,9 +2,9 @@
 
 **Status:** Both appointment endpoints, persisted retrieval, error mapping, and a runnable cURL demonstration are implemented and verified.
 
-Request bodies and responses use JSON (`Content-Type: application/json`). POST requires one JSON object of at most 64 KiB. Unknown fields, extra JSON values, invalid field types, and unsupported or missing Content-Type return `400 INVALID_REQUEST`. Timestamps use RFC 3339 with a timezone offset, including `Z` for UTC. All returned appointment timestamps are normalized to UTC.
+Request bodies and responses use JSON (`Content-Type: application/json`). POST requires one JSON object of at most 64 KiB. Unknown fields, extra JSON values, invalid field types, and unsupported or missing Content-Type return `400 INVALID_REQUEST`. Timestamps use RFC 3339 with a timezone offset, including `Z` for UTC. All returned appointment timestamps are normalized to UTC. Input fractions are truncated to PostgreSQL microsecond precision before future-time validation; start time is checked again after the dealership lock is acquired.
 
-Catalog IDs are positive integers referencing seeded records. Appointment IDs are positive integers assigned by the server when appointments are created.
+Catalog IDs are positive signed 64-bit integers referencing seeded records. Appointment IDs are positive integers assigned by the server when appointments are created.
 
 ## POST /appointments
 
@@ -18,7 +18,7 @@ Create and immediately confirm an appointment. The server validates references a
   "vehicle_id": 1,
   "dealership_id": 1,
   "service_type_id": 1,
-  "start_time": "2026-09-25T10:00:00+07:00"
+  "start_time": "2099-01-16T10:00:00+07:00"
 }
 ```
 
@@ -43,10 +43,10 @@ Return `201 Created` with `Location: /appointments/{id}` and the appointment rep
   "vehicle_id": 1,
   "dealership_id": 1,
   "service_type_id": 1,
-  "technician_id": 3,
-  "service_bay_id": 2,
-  "start_time": "2026-09-25T03:00:00Z",
-  "end_time": "2026-09-25T04:00:00Z",
+  "technician_id": 1,
+  "service_bay_id": 1,
+  "start_time": "2099-01-16T03:00:00Z",
+  "end_time": "2099-01-16T04:00:00Z",
   "status": "CONFIRMED",
   "created_at": "2026-09-23T02:30:00Z"
 }
@@ -88,7 +88,7 @@ All API errors use this envelope:
 | 404 | `SERVICE_TYPE_NOT_FOUND` | Referenced service type does not exist. |
 | 404 | `APPOINTMENT_NOT_FOUND` | Requested appointment does not exist. |
 | 409 | `NO_AVAILABLE_RESOURCES` | No qualified technician and bay can be allocated for the full interval, including capacity lost to a competing booking. |
-| 503 | `SERVICE_UNAVAILABLE` | A required dependency, such as PostgreSQL, is known to be unavailable. |
+| 503 | `SERVICE_UNAVAILABLE` | PostgreSQL is known to be unavailable, or a database operation reaches its deadline. |
 | 500 | `INTERNAL_ERROR` | Unexpected server failure not mapped to a known business or dependency error. |
 
 The 409 response does not expose which resource prevented allocation. Waiting for a lock is not itself a capacity conflict; the booking operation checks capacity after acquiring the lock. Database unavailability and unexpected failures must not be reported as booking conflicts.
@@ -97,9 +97,13 @@ The 409 response does not expose which resource prevented allocation. Waiting fo
 
 Intervals use `[start, end)`, allowing back-to-back bookings. Resource availability accounts for existing appointments, not shifts, opening hours, breaks, holidays, or maintenance schedules. Customer/vehicle association checks do not authenticate the caller or verify identity. See [Architecture assumptions](../docs/architecture.md#assumptions).
 
-The API excludes availability browsing, catalog administration, cancellation, rescheduling, holds, authentication, and idempotency guarantees.
+The API excludes availability browsing, catalog administration, cancellation, rescheduling, holds, authentication, and idempotency guarantees. A lost response or connection failure during commit can leave the booking outcome uncertain; an additional POST may create another booking if capacity remains.
 
 Unknown routes return `404 ROUTE_NOT_FOUND`. Unsupported methods return `405 METHOD_NOT_ALLOWED` with `Allow`. Both use the same JSON error envelope. The operational `/healthz` route keeps its separate database-status representation.
+
+## GET /healthz
+
+The health route checks PostgreSQL within the configured ping deadline. It returns `200` with `{"database":"up","status":"ok"}` or `503` with `{"database":"down","status":"unavailable"}`. Both carry `X-Request-ID`; this route uses its own status body.
 
 ## cURL demonstration
 

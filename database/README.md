@@ -25,12 +25,14 @@ Indexes support lookups by customer, dealership, qualification, and appointment 
 make db-init          # Apply migrations and load demonstration data
 make migrate-up       # Apply pending migrations
 make migrate-version  # Show the current migration version
-make seed             # Reload the deterministic demonstration data
+make seed             # Upsert deterministic demonstration data
 make db-verify        # Verify relationships, constraints, and indexes
 make migrate-down     # Revert the latest migration and its schema data
 ```
 
-`make db-verify` is safe to repeat. The seed uses fixed IDs and upserts, while migration execution reports `no change` after the schema is current.
+`make db-init`, `make seed`, and `make db-verify` all apply migrations and upsert fixed demonstration records. Repeating them restores those records, including appointment 1, while preserving other appointment IDs. Use them to initialize demonstration data before booking. Migration execution reports `no change` when the schema is current.
+
+`make up` applies migrations but does not seed; run `make db-init` first for the cURL demo. `make migrate-down` is destructive: reverting the initial migration drops all application tables. `make down` only stops containers and retains the named database volume.
 
 ## Demonstration data
 
@@ -38,7 +40,7 @@ make migrate-down     # Revert the latest migration and its schema data
 | --- | --- |
 | Dealerships 1-2 | Central Service Centre and Riverside Service Centre. |
 | Customers 1-2 | Alice Nguyen and Ben Carter. |
-| Vehicles 1-3 | Two vehicles for customer 1 and one for customer 2. |
+| Vehicles 1-3 | Vehicles 1 and 3 belong to customer 1; vehicle 2 belongs to customer 2. |
 | Services 1-3 | Oil Change (60 minutes), Brake Inspection (90), and Wheel Alignment (45). |
 | Technicians 1-5 | Dealership-specific qualifications; technician 3 is intentionally unqualified. |
 | Bays 1-4 | Two bays at each dealership. |

@@ -1,14 +1,17 @@
-# Test plan
+# Test coverage
 
 Status: business-rule, concurrency, rollback, and operational coverage are complete. Unit and PostgreSQL/HTTP integration suites pass with race detection; build and static checks also pass. The new concurrency cases also pass five repeated runs with race detection.
 
-## Run current tests
+## Run tests
 
 ```bash
-make test
+make check
 make test-integration
-GOFLAGS=-race make test-integration
+GOFLAGS=-race make test test-integration
+go vet -tags=integration ./...
 ```
+
+`make check` runs unit tests and static analysis; it excludes the integration build tag. Race detection requires CGO and a C compiler on a supported platform.
 
 The integration target starts PostgreSQL and uses `TEST_DATABASE_URL` or the local `.env` database URL. Tests require schema-creation permission; each creates a unique schema, applies the real migration, loads independent fixtures, and removes the schema on cleanup. They do not reset demonstration tables. Integration tests use the `integration` build tag and fail if their database URL is missing.
 
@@ -16,14 +19,12 @@ Verified coverage includes persisted associations, independent resource alternat
 
 HTTP coverage verifies creation and identical retrieval, UTC fields, `Location`, malformed and oversized bodies, invalid IDs and media types, missing references, capacity conflicts, safe error envelopes, and request-log correlation. A real database commit failure returns `500` without a persisted row. Database error classification is unit-tested; a live PostgreSQL stop/restart rehearsal verified both endpoints return `503` and recover afterward.
 
-Concurrent capacity checks, dealership independence, and queued recovery after a failed commit are covered below. Final documentation and clean-setup rehearsal remain in the [delivery plan](../docs/plan.md).
+Concurrent capacity checks, dealership independence, and queued recovery after a failed commit are covered below. The final clean-setup rehearsal remains in the [delivery plan](../docs/plan.md).
 
 | Directory | Purpose |
 | --- | --- |
 | `../internal/**/*_test.go` | Input validation, HTTP contract behavior, and database error classification. |
 | `integration/` | Persistence, atomicity, allocation, HTTP booking/retrieval, and concurrency against real PostgreSQL. |
-| `e2e/` | Reserved for additional process-level workflows if needed; current HTTP tests use the integration setup. |
-| `fixtures/` | Deterministic setup data shared where appropriate. |
 
 ## Business cases
 

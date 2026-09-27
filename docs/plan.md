@@ -10,9 +10,9 @@ Deliver the Unified Service Scheduler for Scenario A: a Go and PostgreSQL backen
 
 | Area | Status | Evidence or remaining work |
 | --- | --- | --- |
-| Project structure | In progress | Environment, database, booking, HTTP handlers, and integration tests are implemented. |
+| Project structure | Complete | Documentation lists the delivered packages, SQL files, demo script, and integration tests. |
 | Technology and concurrency choices | Selected | Recorded in [My decision](#my-decision). |
-| System design | Design recorded | [Architecture](architecture.md) covers confirmed decisions, schema boundaries, and pinned versions. |
+| System design | Documented | [Architecture](architecture.md) matches implemented components, transaction behavior, constraints, operational limits, and pinned versions. |
 | Domain assumptions | Confirmed | Time, working hours, and customer/vehicle validation are documented in [Architecture](architecture.md#assumptions). |
 | Scope freeze | Complete | Technology choices, domain assumptions, and the [API contract](../api/README.md) are confirmed. |
 | Application environment | Complete | The Go service, PostgreSQL connection pool, health route, Compose services, persistent volume, and Make targets run successfully. |
@@ -22,7 +22,8 @@ Deliver the Unified Service Scheduler for Scenario A: a Go and PostgreSQL backen
 | Business-rule tests | Complete | Independent technician/bay interval checks, time precision, eligibility, alternatives, persisted associations, and input rejection pass. |
 | Concurrency and rollback tests | Complete | Coordinated HTTP capacity checks, dealership independence, and recovery of a queued booking after commit failure pass. |
 | Operational behavior | Complete | Correlated logs, appointment IDs, request/database deadlines, safe dependency errors, and recovery are verified. |
-| Verification | Business-rule, HTTP, concurrency, and operational tests pass | Unit tests, PostgreSQL/HTTP integration tests, race detection, build, vet, cURL demonstration, and database outage/recovery checks pass. Final documentation and clean-setup rehearsal remain. |
+| Verification | Business-rule, HTTP, concurrency, and operational tests pass | Unit tests, PostgreSQL/HTTP integration tests, race detection, build, vet, cURL demonstration, and database outage/recovery checks pass. Final clean-setup rehearsal remains. |
+| Documentation | Complete | README setup/verification commands, API examples, architecture, package notes, and both AI narratives match the delivered implementation. |
 | Video and submission | Not completed | Recording and final repository checks follow implementation. |
 
 Completed checkboxes record finished work. Unchecked items remain planned and do not imply implementation or successful verification.
@@ -51,11 +52,11 @@ I selected a single Go backend with PostgreSQL and a cURL client. The implementa
 
 The concurrency tradeoff is reduced throughput within a dealership. All booking writers must follow the same locking protocol. The full data flow and limitations are documented in [architecture.md](architecture.md).
 
-The domain assumptions and [API contract](../api/README.md) are confirmed, completing Step 1. Step 2 pins the runtime and dependency versions and establishes the runnable local environment.
+The domain assumptions and [API contract](../api/README.md) are confirmed. Runtime and dependency versions are pinned in `go.mod`, `Dockerfile`, and `compose.yaml`.
 
 ### Step 3: Schema boundaries
 
-The schema uses composite foreign keys to enforce customer/vehicle ownership, dealership membership for technicians and bays, and technician/service qualification. Positive duration and appointment interval checks protect stored values. Resource overlap remains a booking-transaction responsibility so Step 4 can apply the selected dealership lock consistently.
+The schema uses composite foreign keys to enforce customer/vehicle ownership, dealership membership for technicians and bays, and technician/service qualification. Positive duration and appointment interval checks protect stored values. Resource overlap is a booking-transaction responsibility, enforced through the selected dealership lock before availability checks.
 
 ## Scope boundaries
 
@@ -71,7 +72,7 @@ Catalog administration, authentication, cancellation, rescheduling, temporary ho
 - [x] Confirm time, working-hours, and customer/vehicle validation assumptions in the architecture document.
 - [x] Finalize request/response schemas and error behavior in the API document.
 
-**Completion evidence:** [Architecture](architecture.md) records assumptions, the transaction boundary, and limitations. The [API contract](../api/README.md) defines fields, success responses, and error behavior. Step 1 is complete; implementation starts with Step 2.
+**Completion evidence:** [Architecture](architecture.md) records assumptions, the transaction boundary, and limitations. The [API contract](../api/README.md) defines fields, success responses, and error behavior. Implementation and verification evidence are recorded in the following steps.
 
 ### 2. Start the environment - 90 minutes
 
@@ -145,12 +146,12 @@ Operational review is complete. Successful appointment logs include the persiste
 
 ### 9. Complete documentation - 90 minutes
 
-- [ ] Align architecture, data flow, technology rationale, and observability with implementation.
-- [ ] Explain guarantees, contention, assumptions, and limitations.
-- [ ] Publish exact build, run, migration, seed, and test instructions in the README.
-- [ ] Update both AI narratives with actual design and implementation evidence.
+- [x] Align architecture, data flow, technology rationale, and observability with implementation.
+- [x] Explain guarantees, contention, assumptions, and limitations.
+- [x] Publish exact build, run, migration, seed, and test instructions in the README.
+- [x] Update both AI narratives with actual design and implementation evidence.
 
-**Completion evidence:** Reader-facing documents describe the delivered system and distinguish any remaining limitations.
+**Completion evidence:** README commands match Make targets, configuration, and prior runtime verification. Architecture records implemented components, the locking guarantee, contention, commit uncertainty, and operational limits. API examples match seeded relationships; package/test documents describe existing files. Both AI narratives are concise and evidence-based. Public Markdown passes ASCII, local-link, and anchor checks. Fresh-database rehearsal remains Step 10.
 
 ### 10. Rehearse from clean setup - 1 hour
 
@@ -189,7 +190,7 @@ Operational review is complete. Successful appointment logs include the persiste
 | 6 | Steps 11-12: video and submission | 2 |
 | 7 | Buffer for defects, setup, or access issues | Up to 5 |
 
-Core estimates total 14.5 hours, plus 0.5 hour for transitions and review. Actual effort will be recorded as work progresses. The schedule uses relative days within the submission deadline.
+Core estimates total 14.5 hours, plus 0.5 hour for transitions and review. The schedule uses relative days within the submission deadline.
 
 Feature scope freezes after day 4. Remaining time goes to correctness issues, reproducibility, documentation, and submission. Tests and the required video remain part of delivery if implementation takes longer than expected.
 
@@ -199,7 +200,7 @@ Feature scope freezes after day 4. Remaining time goes to correctness issues, re
 - [ ] Concurrent requests cannot double-book through the supported API.
 - [ ] REST API, PostgreSQL persistence, and business-rule tests work.
 - [ ] Client examples are reproducible.
-- [ ] Architecture covers components, data flow, technologies, observability, and GenAI use.
-- [ ] README includes build/run/test instructions and a concise AI Collaboration Narrative.
+- [x] Architecture covers components, data flow, technologies, observability, and GenAI use.
+- [x] README includes build/run/test instructions and a concise AI Collaboration Narrative.
 - [ ] Video meets the 5-10 minute requirement, including 1-2 minutes on AI collaboration.
 - [ ] Repository and video links are accessible and submitted on time.

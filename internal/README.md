@@ -6,12 +6,11 @@ The repository contains the environment and booking layers for a single Go backe
 | --- | --- |
 | `httpapi/` | Implements health, creation, and retrieval routes; JSON validation, response mapping, request IDs, and request logging. |
 | `appointments/` | Validates booking input and UTC timestamps; defines domain errors, appointment results, and the booking repository interface. |
-| `catalog/` | Planned: customer, vehicle, dealership, service type, technician qualification, and bay models. |
 | `postgres/` | Implements the connection pool and the complete dealership-locked booking transaction, including reference validation, duration, allocation, commit, rollback, and persisted retrieval. |
 | `config/` | Implements validated environment configuration for HTTP and database settings. |
 
-`cmd/api/main.go` configures dependencies, starts the HTTP server, and handles graceful shutdown. Booking rules are independent of HTTP details and use one transaction boundary for creating a confirmed appointment.
+`cmd/api/main.go` configures dependencies, starts the HTTP server, and handles graceful shutdown. The service owns input validation and the repository contract; the PostgreSQL repository performs catalog checks and allocation within one transaction. The service has no HTTP dependency.
 
-Booking unit tests live beside the service. PostgreSQL integration tests live in `tests/integration/` and use isolated schemas. HTTP booking workflows currently share the isolated database setup in `tests/integration/http_test.go`.
+Unit tests live beside input validation, HTTP handling, and PostgreSQL connection/error code. [Integration tests](../tests/README.md) use isolated schemas for business rules, HTTP workflows, concurrency, rollback, and operation deadlines.
 
 The module uses Go 1.27.1, `net/http` with `http.ServeMux`, and `pgx/v5` 5.11.0 with `pgxpool`. `golang-migrate` 4.19.1 applies versioned SQL migrations.
