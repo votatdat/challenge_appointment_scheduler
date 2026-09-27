@@ -1,21 +1,22 @@
 # Test plan
 
-Status: business-rule coverage is complete. Unit and PostgreSQL/HTTP integration suites pass with race detection; build and static checks also pass. Additional concurrent allocation cases remain for Step 7.
+Status: business-rule, concurrency, and rollback coverage are complete. Unit and PostgreSQL/HTTP integration suites pass with race detection; build and static checks also pass. The new concurrency cases also pass five repeated runs with race detection.
 
 ## Run current tests
 
 ```bash
 make test
 make test-integration
+GOFLAGS=-race make test-integration
 ```
 
 The integration target starts PostgreSQL and uses `TEST_DATABASE_URL` or the local `.env` database URL. Tests require schema-creation permission; each creates a unique schema, applies the real migration, loads independent fixtures, and removes the schema on cleanup. They do not reset demonstration tables. Integration tests use the `integration` build tag and fail if their database URL is missing.
 
-Verified coverage includes persisted associations, independent resource alternatives, overlaps and containment for both resources, adjacency in both directions, microsecond boundaries, equivalent timezone offsets, service duration, invalid references and inputs, qualification and dealership filtering, and bookings outside conventional opening hours. Failed commit rollback and cancellation while waiting for the lock are also covered. The contention test waits until six database sessions are blocked, then checks one committed booking and five capacity conflicts.
+Verified coverage includes persisted associations, independent resource alternatives, overlaps and containment for both resources, adjacency in both directions, microsecond boundaries, equivalent timezone offsets, service duration, invalid references and inputs, qualification and dealership filtering, and bookings outside conventional opening hours. Failed commit rollback and cancellation while waiting for the lock are also covered. HTTP contention tests wait until six database sessions are blocked, then verify outcomes and committed rows against the available capacity.
 
 HTTP coverage verifies creation and identical retrieval, UTC fields, `Location`, malformed and oversized bodies, invalid IDs and media types, missing references, capacity conflicts, safe error envelopes, and request-log correlation. A real database commit failure returns `500` without a persisted row. Database error classification is unit-tested; a live PostgreSQL stop/restart rehearsal verified both endpoints return `503` and recover afterward.
 
-Remaining concurrency review includes simultaneous successful independent pairs, a shared technician with multiple bays, a shared bay with multiple technicians, and cross-dealership requests. HTTP contention verification remains planned.
+Concurrent capacity checks, dealership independence, and queued recovery after a failed commit are covered below. Operational review and clean-setup rehearsal remain in the [delivery plan](../docs/plan.md).
 
 | Directory | Purpose |
 | --- | --- |
@@ -52,8 +53,19 @@ The [API contract](../api/README.md) defines the full response shape and status 
 
 ## Concurrency cases
 
-Coordinate independent requests so they compete for the same interval. With exactly one eligible technician and one bay, one booking should succeed and the other attempts should receive the documented conflict result. Inspect persisted appointments as well as HTTP responses.
+[Concurrency integration tests](integration/concurrency_test.go) use independent PostgreSQL connections. The HTTP capacity matrix holds a dealership row lock until all six requests appear as lock waiters in `pg_stat_activity`, then releases them. This proves database contention before checking HTTP results, identical retrieval, row counts, and absence of overlapping resource allocations.
 
-Also cover a shared technician with different bays, a shared bay with different technicians, and independent resource pairs that can both succeed. Repeat relevant cases across independent PostgreSQL connections; mocked repositories cannot validate the database's concurrency behavior.
+| Resource configuration | Expected and verified outcome for six requests |
+| --- | --- |
+| One qualified technician and one bay | One `201`, five `409`, one committed row. |
+| One qualified technician and two bays | One `201`, five `409`, one committed row. |
+| Two qualified technicians and one bay | One `201`, five `409`, one committed row. |
+| Two qualified technicians and two bays | Two `201`, four `409`, two committed rows using distinct resources. |
 
-Performance experiments are outside the current delivery scope. Current service-level test results are recorded above; remaining concurrency coverage will be added in Step 7.
+`TestBookingOtherDealershipProceedsWhileLocked` confirms that another dealership can commit while the first dealership still has a waiting request. Releasing the first lock allows its request to commit as well.
+
+`TestHTTPCommitFailureReleasesWaitingBooking` pauses the first request at commit using a test-only deferred trigger and advisory lock. A second request waits on the dealership row. Releasing the test lock fails the first commit: its HTTP response is `500`, its inserted row is rolled back, and the waiting request returns `201` using the same resource pair. Only the successful request remains in the database. These advisory locks exist only in test fixtures; application booking uses the dealership row lock.
+
+Existing booking tests also verify cancellation while waiting for a lock and successful booking after cancellation. Tests cancel and join concurrent workers before cleanup, and temporary schemas are removed after each test.
+
+Performance experiments are outside the delivery scope. These tests verify the supported booking protocol under coordinated contention; they are not a throughput benchmark.

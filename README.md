@@ -4,7 +4,7 @@ A Go backend for booking vehicle service appointments at a dealership. A booking
 
 This project is the backend submission for Scenario A of the Keyloop Technical Assessment.
 
-**Status:** Appointment creation and retrieval are implemented with PostgreSQL persistence, resource locking, JSON errors, and request IDs. Unit and HTTP/PostgreSQL integration tests pass. Business-rule coverage is complete; remaining delivery work includes concurrency cases, operational review, documentation rehearsal, and video.
+**Status:** Appointment creation and retrieval are implemented with PostgreSQL persistence, resource locking, JSON errors, and request IDs. Unit and HTTP/PostgreSQL integration tests pass. Business-rule, concurrency, and rollback coverage are complete; remaining delivery work includes operational review, documentation rehearsal, and video.
 
 ## Scope
 
@@ -126,4 +126,4 @@ The tree includes the implemented booking service, PostgreSQL transaction, and i
 
 I used AI to analyze requirements and compare designs, then selected a small Go/PostgreSQL backend focused on booking correctness. I reviewed the proposals against the brief and narrowed the scope to preserve time for tests, documentation, and the demonstration. Design review clarified customer associations, atomic resource allocation, and the conditions needed for meaningful concurrency tests.
 
-Verification now includes unit tests and real PostgreSQL tests for persisted associations, overlapping intervals, alternative resources, rollback, and competing bookings. Review refined strict timestamp validation and cancellation cleanup, then added independent technician/bay checks for containment, adjacency, and microsecond boundaries. Six sessions competing for one resource pair produced one committed booking and five capacity conflicts. HTTP tests and a cURL rehearsal verify creation/retrieval, safe errors, and recovery after database unavailability.
+Verification now includes unit tests and real PostgreSQL tests for persisted associations, overlapping intervals, alternative resources, rollback, and competing bookings. Review refined strict timestamp validation and cancellation cleanup, then added independent technician/bay checks for containment, adjacency, and microsecond boundaries. Coordinated HTTP tests verify one or two successes according to available capacity, dealership independence, and recovery of a queued booking after a failed commit. HTTP tests and a cURL rehearsal verify creation/retrieval, safe errors, and recovery after database unavailability.

@@ -4,6 +4,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -24,31 +25,40 @@ type httpResult struct {
 
 func callHTTP(t *testing.T, server *httptest.Server, method, path string, body any) httpResult {
 	t.Helper()
+	client := *server.Client()
+	client.Timeout = 10 * time.Second
+	result, err := requestHTTP(t.Context(), &client, method, server.URL+path, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+// Return errors to the caller so concurrent workers do not call t.Fatal.
+func requestHTTP(ctx context.Context, client *http.Client, method, url string, body any) (httpResult, error) {
 	var data []byte
 	if body != nil {
 		var err error
 		data, err = json.Marshal(body)
 		if err != nil {
-			t.Fatal(err)
+			return httpResult{}, err
 		}
 	}
-	req, err := http.NewRequestWithContext(t.Context(), method, server.URL+path, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(data))
 	if err != nil {
-		t.Fatal(err)
+		return httpResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := server.Client()
-	client.Timeout = 10 * time.Second
 	response, err := client.Do(req)
 	if err != nil {
-		t.Fatal(err)
+		return httpResult{}, err
 	}
 	defer response.Body.Close()
 	content, err := io.ReadAll(response.Body)
 	if err != nil {
-		t.Fatal(err)
+		return httpResult{}, err
 	}
-	return httpResult{status: response.StatusCode, header: response.Header, body: content}
+	return httpResult{status: response.StatusCode, header: response.Header, body: content}, nil
 }
 
 func httpInput() map[string]any {

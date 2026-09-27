@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -261,66 +260,4 @@ func TestBookingCancellationReleasesConnection(t *testing.T) {
 		t.Fatalf("cancelled booking persisted %d rows", n)
 	}
 	mustBook(t, service, input())
-}
-
-func TestCompetingBookingsUseFreshAvailability(t *testing.T) {
-	pool, service, schema := setup(t)
-	execSQL(t, pool, "DELETE FROM technician_qualifications WHERE technician_id=2")
-	execSQL(t, pool, "DELETE FROM service_bays WHERE id=2")
-	lock, err := pool.Begin(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lock.Rollback(context.Background())
-	if _, err := lock.Exec(t.Context(), "SELECT id FROM dealerships WHERE id=1 FOR UPDATE"); err != nil {
-		t.Fatal(err)
-	}
-	const requests = 6
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	in := input()
-	results := make(chan error, requests)
-	var wg sync.WaitGroup
-	for range requests {
-		wg.Add(1)
-		go func() { defer wg.Done(); _, err := service.Create(ctx, in); results <- err }()
-	}
-	// Observe all six independent sessions waiting on the same lock before
-	// releasing it; a start barrier alone cannot establish database contention.
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		var waiting int
-		err := pool.QueryRow(ctx, `
-			SELECT count(*) FROM pg_stat_activity
-			WHERE application_name=$1 AND wait_event_type='Lock'`, schema).Scan(&waiting)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if waiting == requests {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("only %d sessions reached the dealership lock", waiting)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if err := lock.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
-	wg.Wait()
-	close(results)
-	success, conflicts := 0, 0
-	for err := range results {
-		switch {
-		case err == nil:
-			success++
-		case errors.Is(err, appointments.ErrNoAvailableResources):
-			conflicts++
-		default:
-			t.Fatalf("unexpected concurrent result: %v", err)
-		}
-	}
-	if success != 1 || conflicts != requests-1 || count(t, pool) != 1 {
-		t.Fatalf("success=%d conflicts=%d committed=%d", success, conflicts, count(t, pool))
-	}
 }

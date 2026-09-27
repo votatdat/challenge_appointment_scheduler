@@ -20,7 +20,8 @@ Deliver the Unified Service Scheduler for Scenario A: a Go and PostgreSQL backen
 | Booking transaction | Complete | Validation, dealership locking, allocation, atomic commit, and rollback pass service-level tests. |
 | Appointment HTTP API | Complete | Creation returns `201` and `Location`; retrieval returns the same persisted representation; errors carry request IDs. |
 | Business-rule tests | Complete | Independent technician/bay interval checks, time precision, eligibility, alternatives, persisted associations, and input rejection pass. |
-| Verification | Business-rule and HTTP tests pass | Unit tests, PostgreSQL/HTTP integration tests, race detection, build, vet, cURL demonstration, and database outage/recovery checks pass. Remaining concurrency cases and operational review follow. |
+| Concurrency and rollback tests | Complete | Coordinated HTTP capacity checks, dealership independence, and recovery of a queued booking after commit failure pass. |
+| Verification | Business-rule, HTTP, and concurrency tests pass | Unit tests, PostgreSQL/HTTP integration tests, race detection, build, vet, cURL demonstration, and database outage/recovery checks pass. Operational review and clean-setup rehearsal remain. |
 | Video and submission | Not completed | Recording and final repository checks follow implementation. |
 
 Completed checkboxes record finished work. Unchecked items remain planned and do not imply implementation or successful verification.
@@ -122,14 +123,14 @@ Business-rule coverage is complete. The interval matrix tests technicians and ba
 
 ### 7. Test concurrency and rollback - 90 minutes
 
-Step 4 already verifies six contending sessions, failed-commit rollback, and lock-wait cancellation. This phase adds the remaining concurrent resource combinations and HTTP verification.
+Concurrency and rollback coverage is complete. HTTP tests coordinate six independent database sessions for each resource combination and inspect committed data as well as responses.
 
-- [ ] Coordinate 5-10 requests with one eligible technician and bay for the interval.
-- [ ] Verify one success, remaining capacity conflicts, and one committed appointment.
-- [ ] Verify independent resource pairs can both be booked without false conflicts.
-- [ ] Verify rollback leaves no committed appointment and releases the lock.
+- [x] Coordinate 5-10 requests with one eligible technician and bay for the interval.
+- [x] Verify one success, remaining capacity conflicts, and one committed appointment.
+- [x] Verify independent resource pairs can both be booked without false conflicts.
+- [x] Verify rollback leaves no committed appointment and releases the lock.
 
-**Completion evidence:** Tests use independent PostgreSQL connections and inspect committed data. A one-connection pool is insufficient to verify the locking protocol.
+**Completion evidence:** Six concurrent HTTP requests yield one `201` and five `409` responses with one pair, a shared technician, or a shared bay; two available pairs yield two `201` and four `409` responses. Stored rows contain no resource overlaps, and successful responses match retrieval. A different dealership commits while the first remains locked. A failed commit returns `500`, leaves no failed row, and releases its pair for a queued request. The full integration suite and five repeated runs of the new concurrency cases pass with race detection; build and static checks pass. See [concurrency coverage](../tests/README.md#concurrency-cases).
 
 ### 8. Add basic operational behavior - 30 minutes
 
